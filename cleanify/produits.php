@@ -237,7 +237,7 @@ $produits = mysqli_query($conn,
                         <td>
                             <strong><?php echo htmlspecialchars($p['designation']); ?></strong><br>
                             <small style="color:#94A3B8;">
-                                <?php echo htmlspecialchars(mb_strimwidth($p['description'] ?? '', 0, 50, '...')); ?>
+                                <?php echo htmlspecialchars(mb_strimwidth($p['description'] ? $p['description'] : '', 0, 50, '...')); ?>
                             </small>
                         </td>
                         <td><?php echo $p['nom_categorie'] ? htmlspecialchars($p['nom_categorie']) : '—'; ?></td>

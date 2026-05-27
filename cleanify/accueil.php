@@ -21,7 +21,9 @@ $nb_ventes_aujourd_hui = mysqli_fetch_assoc($res)['nb'];
 $res = mysqli_query($conn,
     "SELECT SUM(montant_total) AS ca FROM vente WHERE DATE(date_vente) = CURDATE()"
 );
-$ca_aujourd_hui = mysqli_fetch_assoc($res)['ca'] ?? 0;
+// SUM() returns NULL if there are no sales — we use a ternary instead of ?? (PHP 5.6 compatible)
+$row_ca = mysqli_fetch_assoc($res);
+$ca_aujourd_hui = $row_ca['ca'] ? $row_ca['ca'] : 0;
 
 // --- Stat 3: total number of clients ---
 $res = mysqli_query($conn, "SELECT COUNT(*) AS nb FROM client");
@@ -182,7 +184,7 @@ $res_stock = mysqli_query($conn,
                     <div class="alert-stock">
                         <div class="produit-info">
                             <strong><?php echo htmlspecialchars($p['designation']); ?></strong>
-                            <span><?php echo htmlspecialchars($p['nom_categorie'] ?? '—'); ?></span>
+                            <span><?php echo htmlspecialchars($p['nom_categorie'] ? $p['nom_categorie'] : '—'); ?></span>
                         </div>
                         <?php if ($p['stock_actuel'] == 0): ?>
                             <span class="badge badge-danger">Rupture</span>

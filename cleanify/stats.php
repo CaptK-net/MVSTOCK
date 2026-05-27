@@ -23,7 +23,8 @@ $res = mysqli_query($conn, "SELECT COUNT(*) AS nb FROM vente");
 $total_ventes = mysqli_fetch_assoc($res)['nb'];
 
 $res = mysqli_query($conn, "SELECT SUM(montant_total) AS ca FROM vente");
-$total_ca = mysqli_fetch_assoc($res)['ca'] ?? 0;
+$row_ca   = mysqli_fetch_assoc($res);
+$total_ca = $row_ca['ca'] ? $row_ca['ca'] : 0;
 
 // Best-selling product
 $res = mysqli_query($conn,
