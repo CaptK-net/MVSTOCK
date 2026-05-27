@@ -1,14 +1,9 @@
 <?php
-// Start the session
 session_start();
-
-// Include the database connection
 require_once 'config.php';
 
-// ── ACCESS CONTROL ─────────────────────────────────────────
-// Only admins and agents can record sales
-if (!isset($_SESSION['user_id']) || $_SESSION['user_role'] == 'client') {
-    header("Location: index.php");
+if (!isset($_SESSION['user_id'])) {
+    header("Location: login.php");
     exit();
 }
 
@@ -18,86 +13,78 @@ $erreur  = "";
 // ── RECORD A NEW SALE ──────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && $_POST['action'] == 'vendre') {
 
-    // The agent is always the currently logged-in user
-    $agent_id = (int) $_SESSION['user_id'];
+    $id_utilisateur = (int) $_SESSION['user_id'];
+    $id_client      = !empty($_POST['id_client']) ? (int) $_POST['id_client'] : "NULL";
+    $mode_paiement  = mysqli_real_escape_string($conn, $_POST['mode_paiement']);
 
-    // Client ID is optional (empty = anonymous sale)
-    $client_id = !empty($_POST['client_id']) ? (int) $_POST['client_id'] : "NULL";
-
-    // The form sends 5 rows of products
-    // We loop through them and only keep rows where a product was selected
+    // Loop through the 5 product rows, skip empty ones
     $lignes_valides = [];
     for ($i = 0; $i < 5; $i++) {
-        $pid = (int) $_POST['produit_id'][$i];
-        $qty = (int) $_POST['quantite'][$i];
+        $id_produit = (int) $_POST['id_produit'][$i];
+        $quantite   = (int) $_POST['quantite'][$i];
 
-        // Skip this row if no product was selected or quantity is 0
-        if ($pid == 0 || $qty <= 0) {
-            continue;
+        if ($id_produit == 0 || $quantite <= 0) {
+            continue; // Skip empty rows
         }
 
-        // Get the current price of this product from the database
-        $res = mysqli_query($conn, "SELECT prix, stock, nom FROM produits WHERE id = $pid");
+        // Get this product's current price and stock from the database
+        $res     = mysqli_query($conn, "SELECT designation, prix_unitaire, stock_actuel FROM produit WHERE id_produit = $id_produit");
         $produit = mysqli_fetch_assoc($res);
 
-        // Check there is enough stock
-        if ($produit['stock'] < $qty) {
-            $erreur = "Stock insuffisant pour : " . $produit['nom'] .
-                      " (disponible : " . $produit['stock'] . ")";
-            break; // Stop processing and show the error
+        // Check there is enough stock before accepting this line
+        if ($produit['stock_actuel'] < $quantite) {
+            $erreur = "Stock insuffisant pour : " . $produit['designation'] .
+                      " (disponible : " . $produit['stock_actuel'] . ")";
+            break;
         }
 
-        // Store this valid line
         $lignes_valides[] = [
-            'produit_id'    => $pid,
-            'quantite'      => $qty,
-            'prix_unitaire' => (float) $produit['prix'],
-            'nom'           => $produit['nom']
+            'id_produit'    => $id_produit,
+            'quantite'      => $quantite,
+            'prix_unitaire' => (float) $produit['prix_unitaire'],
+            'designation'   => $produit['designation']
         ];
     }
 
-    // Only proceed if there was no error and at least one product was selected
     if ($erreur == "" && count($lignes_valides) > 0) {
 
         // Calculate the grand total
-        $total = 0;
+        $montant_total = 0;
         foreach ($lignes_valides as $ligne) {
-            $total += $ligne['prix_unitaire'] * $ligne['quantite'];
+            $montant_total += $ligne['prix_unitaire'] * $ligne['quantite'];
         }
 
-        // ── Step 1: Insert the sale into the ventes table ──
-        $sql_vente = "INSERT INTO ventes (client_id, agent_id, total)
-                      VALUES ($client_id, $agent_id, $total)";
+        // Step 1: Insert the sale header
+        $sql_vente = "INSERT INTO vente (montant_total, mode_paiement, id_client, id_utilisateur)
+                      VALUES ($montant_total, '$mode_paiement', $id_client, $id_utilisateur)";
 
         if (mysqli_query($conn, $sql_vente)) {
+            $id_vente = mysqli_insert_id($conn); // Get the ID of the sale just created
 
-            // Get the ID of the sale we just inserted
-            $vente_id = mysqli_insert_id($conn);
-
-            // ── Step 2: Insert each product line ──
             foreach ($lignes_valides as $ligne) {
-                $sql_ligne = "INSERT INTO vente_produits (vente_id, produit_id, quantite, prix_unitaire)
-                              VALUES ($vente_id, {$ligne['produit_id']}, {$ligne['quantite']}, {$ligne['prix_unitaire']})";
+
+                // Step 2: Insert each product line into ligne_vente
+                $sql_ligne = "INSERT INTO ligne_vente (quantite, prix_unitaire, id_vente, id_produit)
+                              VALUES ({$ligne['quantite']}, {$ligne['prix_unitaire']}, $id_vente, {$ligne['id_produit']})";
                 mysqli_query($conn, $sql_ligne);
 
-                // ── Step 3: Reduce the stock of this product ──
-                $sql_stock = "UPDATE produits
-                              SET stock = stock - {$ligne['quantite']}
-                              WHERE id = {$ligne['produit_id']}";
+                // Step 3: Decrease the stock
+                $sql_stock = "UPDATE produit
+                              SET stock_actuel = stock_actuel - {$ligne['quantite']}
+                              WHERE id_produit = {$ligne['id_produit']}";
                 mysqli_query($conn, $sql_stock);
             }
 
-            // ── Step 4: Add loyalty points to the client ──
-            // Rule: 1 point per dollar spent (we cast to int to round down)
-            if ($client_id != "NULL") {
-                $points = (int) $total;
-                $sql_points = "UPDATE users
+            // Step 4: Add loyalty points to the client (1 point per dollar)
+            if ($id_client != "NULL") {
+                $points = (int) $montant_total;
+                $sql_points = "UPDATE client
                                SET points_fidelite = points_fidelite + $points
-                               WHERE id = $client_id";
+                               WHERE id_client = $id_client";
                 mysqli_query($conn, $sql_points);
             }
 
-            $message = "Vente #$vente_id enregistrée ! Total : $" . number_format($total, 2);
+            $message = "Vente #$id_vente enregistrée ! Total : $" . number_format($montant_total, 2);
 
         } else {
             $erreur = "Erreur lors de l'enregistrement : " . mysqli_error($conn);
@@ -108,16 +95,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && $_POST['action'] == 'vendre') {
     }
 }
 
-// ── FETCH ALL CLIENTS for the dropdown ────────────────────
-$clients = mysqli_query($conn,
-    "SELECT id, nom, prenom FROM users WHERE role = 'client' ORDER BY nom"
-);
+// ── FETCH CLIENTS for dropdown ─────────────────────────────
+$clients = mysqli_query($conn, "SELECT id_client, nom, prenom FROM client ORDER BY nom");
 
-// ── FETCH ALL PRODUCTS for the dropdowns ──────────────────
+// ── FETCH PRODUCTS for dropdown ────────────────────────────
 $produits_res = mysqli_query($conn,
-    "SELECT id, nom, prix, stock FROM produits ORDER BY nom"
+    "SELECT id_produit, designation, prix_unitaire, stock_actuel FROM produit ORDER BY designation"
 );
-// Store in an array so we can reuse it across the 5 form rows
 $produits_array = [];
 while ($p = mysqli_fetch_assoc($produits_res)) {
     $produits_array[] = $p;
@@ -125,39 +109,39 @@ while ($p = mysqli_fetch_assoc($produits_res)) {
 
 // ── FETCH RECENT SALES ─────────────────────────────────────
 $ventes = mysqli_query($conn,
-    "SELECT v.id, v.date_vente, v.total,
+    "SELECT v.id_vente, v.date_vente, v.montant_total, v.mode_paiement,
             CONCAT(c.prenom, ' ', c.nom) AS client_nom,
-            CONCAT(a.prenom, ' ', a.nom) AS agent_nom
-     FROM ventes v
-     LEFT JOIN users c ON v.client_id = c.id
-     LEFT JOIN users a ON v.agent_id  = a.id
+            CONCAT(u.prenom, ' ', u.nom) AS agent_nom
+     FROM vente v
+     LEFT JOIN client      c ON v.id_client      = c.id_client
+     LEFT JOIN utilisateur u ON v.id_utilisateur = u.id_utilisateur
      ORDER BY v.date_vente DESC
      LIMIT 20"
 );
 
-// ── VIEW SALE DETAILS (?voir=ID) ───────────────────────────
+// ── VIEW SALE DETAIL (?voir=ID) ────────────────────────────
 $detail_vente    = null;
-$detail_produits = null;
+$detail_lignes   = null;
 if (isset($_GET['voir'])) {
     $id = (int) $_GET['voir'];
 
     $res_detail = mysqli_query($conn,
         "SELECT v.*,
                 CONCAT(c.prenom, ' ', c.nom) AS client_nom,
-                CONCAT(a.prenom, ' ', a.nom) AS agent_nom
-         FROM ventes v
-         LEFT JOIN users c ON v.client_id = c.id
-         LEFT JOIN users a ON v.agent_id  = a.id
-         WHERE v.id = $id"
+                CONCAT(u.prenom, ' ', u.nom) AS agent_nom
+         FROM vente v
+         LEFT JOIN client      c ON v.id_client      = c.id_client
+         LEFT JOIN utilisateur u ON v.id_utilisateur = u.id_utilisateur
+         WHERE v.id_vente = $id"
     );
     $detail_vente = mysqli_fetch_assoc($res_detail);
 
-    $detail_produits = mysqli_query($conn,
-        "SELECT p.nom, vp.quantite, vp.prix_unitaire,
-                (vp.quantite * vp.prix_unitaire) AS sous_total
-         FROM vente_produits vp
-         JOIN produits p ON vp.produit_id = p.id
-         WHERE vp.vente_id = $id"
+    $detail_lignes = mysqli_query($conn,
+        "SELECT p.designation, lv.quantite, lv.prix_unitaire,
+                (lv.quantite * lv.prix_unitaire) AS sous_total
+         FROM ligne_vente lv
+         JOIN produit p ON lv.id_produit = p.id_produit
+         WHERE lv.id_vente = $id"
     );
 }
 ?>
@@ -166,17 +150,16 @@ if (isset($_GET['voir'])) {
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Cleanify - Ventes</title>
+    <title>Ventes</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="dashboard-layout">
 
-    <!-- ===== SIDEBAR ===== -->
     <aside class="sidebar">
         <div class="sidebar-logo">
-            <img src="https://cleanifyleb.com/cdn/shop/files/Untitled_design_66.jpg" alt="Cleanify Logo">
-            <h1>Cleanify</h1>
+            <h1 style="font-size:1.4rem;">🏪 GestVente</h1>
+            <p style="color:#64748B; font-size:0.78rem;">Gestion des ventes</p>
         </div>
         <nav>
             <a href="accueil.php"><span class="icon">🏠</span> Tableau de bord</a>
@@ -190,7 +173,6 @@ if (isset($_GET['voir'])) {
         </div>
     </aside>
 
-    <!-- ===== MAIN CONTENT ===== -->
     <main class="main-content">
 
         <div class="topbar">
@@ -201,7 +183,6 @@ if (isset($_GET['voir'])) {
             </div>
         </div>
 
-        <!-- Success or error messages -->
         <?php if ($message != ""): ?>
             <div class="alert-msg success"><?php echo $message; ?></div>
         <?php endif; ?>
@@ -210,74 +191,56 @@ if (isset($_GET['voir'])) {
         <?php endif; ?>
 
         <?php if ($detail_vente): ?>
-        <!-- ════════════════════════════════════════════════ -->
-        <!--  SALE DETAIL VIEW  (?voir=ID)                   -->
-        <!-- ════════════════════════════════════════════════ -->
+        <!-- ── SALE DETAIL VIEW ── -->
         <div class="card">
             <div class="card-header">
-                <h3>🧾 Détail de la vente #<?php echo $detail_vente['id']; ?></h3>
+                <h3>🧾 Détail — Vente #<?php echo $detail_vente['id_vente']; ?></h3>
                 <a href="ventes.php" class="btn btn-secondary">← Retour</a>
             </div>
             <div style="padding:24px;">
-
-                <!-- Sale summary -->
-                <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-bottom:24px;">
+                <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:16px; margin-bottom:24px;">
                     <div>
-                        <p style="color:#94A3B8; font-size:0.8rem; margin-bottom:4px;">CLIENT</p>
-                        <p style="font-weight:600;">
-                            <?php echo $detail_vente['client_nom'] ? htmlspecialchars($detail_vente['client_nom']) : 'Anonyme'; ?>
-                        </p>
+                        <p style="color:#94A3B8; font-size:0.8rem;">CLIENT</p>
+                        <p style="font-weight:600;"><?php echo $detail_vente['client_nom'] ? htmlspecialchars($detail_vente['client_nom']) : 'Anonyme'; ?></p>
                     </div>
                     <div>
-                        <p style="color:#94A3B8; font-size:0.8rem; margin-bottom:4px;">AGENT</p>
-                        <p style="font-weight:600;">
-                            <?php echo htmlspecialchars($detail_vente['agent_nom']); ?>
-                        </p>
+                        <p style="color:#94A3B8; font-size:0.8rem;">AGENT</p>
+                        <p style="font-weight:600;"><?php echo htmlspecialchars($detail_vente['agent_nom']); ?></p>
                     </div>
                     <div>
-                        <p style="color:#94A3B8; font-size:0.8rem; margin-bottom:4px;">DATE</p>
-                        <p style="font-weight:600;">
-                            <?php echo date('d/m/Y à H:i', strtotime($detail_vente['date_vente'])); ?>
-                        </p>
+                        <p style="color:#94A3B8; font-size:0.8rem;">PAIEMENT</p>
+                        <p style="font-weight:600;"><?php echo ucfirst($detail_vente['mode_paiement']); ?></p>
+                    </div>
+                    <div>
+                        <p style="color:#94A3B8; font-size:0.8rem;">DATE</p>
+                        <p style="font-weight:600;"><?php echo date('d/m/Y à H:i', strtotime($detail_vente['date_vente'])); ?></p>
                     </div>
                 </div>
-
-                <!-- Product lines -->
                 <table>
                     <thead>
-                        <tr>
-                            <th>Produit</th>
-                            <th>Prix unitaire</th>
-                            <th>Quantité</th>
-                            <th>Sous-total</th>
-                        </tr>
+                        <tr><th>Produit</th><th>Prix unitaire</th><th>Quantité</th><th>Sous-total</th></tr>
                     </thead>
                     <tbody>
-                    <?php while ($ligne = mysqli_fetch_assoc($detail_produits)): ?>
+                    <?php while ($l = mysqli_fetch_assoc($detail_lignes)): ?>
                         <tr>
-                            <td><?php echo htmlspecialchars($ligne['nom']); ?></td>
-                            <td>$<?php echo number_format($ligne['prix_unitaire'], 2); ?></td>
-                            <td><?php echo $ligne['quantite']; ?></td>
-                            <td><strong>$<?php echo number_format($ligne['sous_total'], 2); ?></strong></td>
+                            <td><?php echo htmlspecialchars($l['designation']); ?></td>
+                            <td>$<?php echo number_format($l['prix_unitaire'], 2); ?></td>
+                            <td><?php echo $l['quantite']; ?></td>
+                            <td><strong>$<?php echo number_format($l['sous_total'], 2); ?></strong></td>
                         </tr>
                     <?php endwhile; ?>
                     <tr style="background:#F8FAFC;">
                         <td colspan="3" style="text-align:right; font-weight:700; padding:14px 24px;">TOTAL</td>
                         <td style="font-weight:700; font-size:1.1rem; color:#0D9488;">
-                            $<?php echo number_format($detail_vente['total'], 2); ?>
+                            $<?php echo number_format($detail_vente['montant_total'], 2); ?>
                         </td>
                     </tr>
                     </tbody>
                 </table>
-
             </div>
         </div>
 
         <?php else: ?>
-        <!-- ════════════════════════════════════════════════ -->
-        <!--  NORMAL VIEW: new sale form + sales list        -->
-        <!-- ════════════════════════════════════════════════ -->
-
         <!-- ── NEW SALE FORM ── -->
         <div class="card" style="margin-bottom:24px;">
             <div class="card-header">
@@ -287,23 +250,36 @@ if (isset($_GET['voir'])) {
                 <form method="POST" action="ventes.php">
                     <input type="hidden" name="action" value="vendre">
 
-                    <!-- Client selection -->
-                    <div class="form-group" style="max-width:400px; margin-bottom:24px;">
-                        <label>Client (optionnel — laisser vide pour vente anonyme)</label>
-                        <select name="client_id">
-                            <option value="">-- Vente anonyme --</option>
-                            <?php foreach (mysqli_fetch_all($clients, MYSQLI_ASSOC) as $c): ?>
-                                <option value="<?php echo $c['id']; ?>">
-                                    <?php echo htmlspecialchars($c['prenom'] . ' ' . $c['nom']); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px;">
+
+                        <!-- Client dropdown -->
+                        <div class="form-group">
+                            <label>Client (optionnel — vente anonyme si vide)</label>
+                            <select name="id_client">
+                                <option value="">-- Vente anonyme --</option>
+                                <?php while ($c = mysqli_fetch_assoc($clients)): ?>
+                                    <option value="<?php echo $c['id_client']; ?>">
+                                        <?php echo htmlspecialchars($c['prenom'] . ' ' . $c['nom']); ?>
+                                    </option>
+                                <?php endwhile; ?>
+                            </select>
+                        </div>
+
+                        <!-- Payment method dropdown (new field from professor's model) -->
+                        <div class="form-group">
+                            <label>Mode de paiement *</label>
+                            <select name="mode_paiement">
+                                <option value="especes">💵 Espèces</option>
+                                <option value="carte">💳 Carte</option>
+                                <option value="virement">🏦 Virement</option>
+                            </select>
+                        </div>
+
                     </div>
 
-                    <!-- Product rows -->
-                    <!-- The form always shows 5 rows; empty rows are ignored by PHP -->
+                    <!-- 5 fixed product rows — PHP skips rows left on "Aucun" -->
                     <p style="font-size:0.85rem; color:#94A3B8; margin-bottom:12px;">
-                        Sélectionnez jusqu'à 5 produits — laissez les lignes inutiles vides.
+                        Sélectionnez jusqu'à 5 produits — laissez les lignes inutiles sur "Aucun".
                     </p>
 
                     <table style="margin-bottom:20px;">
@@ -316,51 +292,40 @@ if (isset($_GET['voir'])) {
                             </tr>
                         </thead>
                         <tbody>
-                        <?php
-                        // Generate 5 identical product rows using a loop
-                        for ($i = 0; $i < 5; $i++):
-                        ?>
+                        <?php for ($i = 0; $i < 5; $i++): ?>
                             <tr>
                                 <td style="color:#94A3B8;"><?php echo $i + 1; ?></td>
                                 <td>
-                                    <select name="produit_id[]" style="width:250px;">
+                                    <select name="id_produit[]" style="width:280px;">
                                         <option value="0">-- Aucun --</option>
                                         <?php foreach ($produits_array as $p): ?>
-                                            <option value="<?php echo $p['id']; ?>">
-                                                <?php echo htmlspecialchars($p['nom']); ?>
-                                                — $<?php echo number_format($p['prix'], 2); ?>
-                                                (stock: <?php echo $p['stock']; ?>)
+                                            <option value="<?php echo $p['id_produit']; ?>">
+                                                <?php echo htmlspecialchars($p['designation']); ?>
+                                                — $<?php echo number_format($p['prix_unitaire'], 2); ?>
+                                                (stock: <?php echo $p['stock_actuel']; ?>)
                                             </option>
                                         <?php endforeach; ?>
                                     </select>
                                 </td>
-                                <!-- Price is shown inside the dropdown, no separate field needed -->
-                                <td style="color:#94A3B8; font-size:0.85rem;">
-                                    (affiché dans le menu)
-                                </td>
+                                <td style="color:#94A3B8; font-size:0.85rem;">(affiché dans le menu)</td>
                                 <td>
-                                    <input type="number" name="quantite[]"
-                                           value="1" min="1" style="width:70px;">
+                                    <input type="number" name="quantite[]" value="1" min="1" style="width:70px;">
                                 </td>
                             </tr>
                         <?php endfor; ?>
                         </tbody>
                     </table>
 
-                    <button type="submit" class="btn btn-primary">
-                        💾 Enregistrer la vente
-                    </button>
-
+                    <button type="submit" class="btn btn-primary">💾 Enregistrer la vente</button>
                 </form>
             </div>
         </div>
 
-        <!-- ── RECENT SALES LIST ── -->
+        <!-- RECENT SALES LIST -->
         <div class="card">
             <div class="card-header">
                 <h3>📋 Ventes récentes</h3>
             </div>
-
             <?php if (mysqli_num_rows($ventes) == 0): ?>
                 <div class="empty-state">
                     <div class="empty-icon">🛒</div>
@@ -373,6 +338,7 @@ if (isset($_GET['voir'])) {
                         <th>#</th>
                         <th>Client</th>
                         <th>Agent</th>
+                        <th>Paiement</th>
                         <th>Total</th>
                         <th>Date</th>
                         <th>Détail</th>
@@ -381,44 +347,32 @@ if (isset($_GET['voir'])) {
                 <tbody>
                 <?php while ($v = mysqli_fetch_assoc($ventes)): ?>
                     <tr>
-                        <td>#<?php echo $v['id']; ?></td>
+                        <td>#<?php echo $v['id_vente']; ?></td>
                         <td>
-                            <?php if ($v['client_nom']): ?>
-                                <?php echo htmlspecialchars($v['client_nom']); ?>
-                            <?php else: ?>
-                                <span class="badge badge-info">Anonyme</span>
-                            <?php endif; ?>
+                            <?php echo $v['client_nom']
+                                ? htmlspecialchars($v['client_nom'])
+                                : '<span class="badge badge-info">Anonyme</span>'; ?>
                         </td>
                         <td><?php echo htmlspecialchars($v['agent_nom']); ?></td>
-                        <td><strong>$<?php echo number_format($v['total'], 2); ?></strong></td>
+                        <td><?php echo ucfirst($v['mode_paiement']); ?></td>
+                        <td><strong>$<?php echo number_format($v['montant_total'], 2); ?></strong></td>
                         <td><?php echo date('d/m/Y H:i', strtotime($v['date_vente'])); ?></td>
-                        <td>
-                            <a href="ventes.php?voir=<?php echo $v['id']; ?>"
-                               class="btn btn-secondary">🔍 Voir</a>
-                        </td>
+                        <td><a href="ventes.php?voir=<?php echo $v['id_vente']; ?>" class="btn btn-secondary">🔍 Voir</a></td>
                     </tr>
                 <?php endwhile; ?>
                 </tbody>
             </table>
             <?php endif; ?>
         </div>
-
         <?php endif; ?>
 
     </main>
 </div>
 
 <style>
-.alert-msg {
-    padding: 12px 18px;
-    border-radius: 8px;
-    margin-bottom: 20px;
-    font-weight: 500;
-    font-size: 0.9rem;
-}
+.alert-msg { padding:12px 18px; border-radius:8px; margin-bottom:20px; font-weight:500; font-size:0.9rem; }
 .alert-msg.success { background:#D1FAE5; color:#065F46; border-left:4px solid #059669; }
 .alert-msg.danger  { background:#FEE2E2; color:#991B1B; border-left:4px solid #DC2626; }
 </style>
-
 </body>
 </html>
