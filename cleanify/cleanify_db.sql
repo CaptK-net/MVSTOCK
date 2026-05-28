@@ -1,6 +1,6 @@
 -- ============================================================
 -- Système de Gestion des Ventes
--- Base de données — Modèle relationnel du professeur
+-- Base de données — Modèle relationnel
 -- ============================================================
 
 DROP DATABASE IF EXISTS cleanify_db;
