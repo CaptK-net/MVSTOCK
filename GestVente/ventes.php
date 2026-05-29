@@ -158,8 +158,8 @@ if (isset($_GET['voir'])) {
 
     <aside class="sidebar">
         <div class="sidebar-logo">
-            <h1 style="font-size:1.4rem;">🏪 GestVente</h1>
-            <p style="color:#64748B; font-size:0.78rem;">Gestion des ventes</p>
+            <h1>MVSTOCK</h1>
+            <p>Sell fast, restock faster.</p>
         </div>
         <nav>
             <a href="accueil.php"><span class="icon">🏠</span> Tableau de bord</a>

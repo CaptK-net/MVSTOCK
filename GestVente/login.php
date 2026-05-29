@@ -39,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Connexion</title>
+    <title>MVSTOCK — Connexion</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -47,8 +47,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         <div class="login-box">
 
             <div class="login-logo">
-                <h1 style="color:#0D9488; font-size:1.8rem;">🏪 GestVente</h1>
-                <p style="color:#94A3B8; font-size:0.9rem;">Système de gestion des ventes</p>
+                <h1>MVSTOCK</h1>
+                <p>Sell fast, restock faster.</p>
             </div>
 
             <h2>Connexion</h2>
