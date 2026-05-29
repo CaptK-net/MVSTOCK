@@ -203,19 +203,19 @@ if (isset($_GET['voir'])) {
             <div style="padding:24px;">
                 <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:16px; margin-bottom:24px;">
                     <div>
-                        <p style="color:#94A3B8; font-size:0.8rem;">CLIENT</p>
+                        <p style="color:#888; font-size:0.8rem;">CLIENT</p>
                         <p style="font-weight:600;"><?php echo $detail_vente['client_nom'] ? htmlspecialchars($detail_vente['client_nom']) : 'Anonyme'; ?></p>
                     </div>
                     <div>
-                        <p style="color:#94A3B8; font-size:0.8rem;">AGENT</p>
+                        <p style="color:#888; font-size:0.8rem;">AGENT</p>
                         <p style="font-weight:600;"><?php echo htmlspecialchars($detail_vente['agent_nom']); ?></p>
                     </div>
                     <div>
-                        <p style="color:#94A3B8; font-size:0.8rem;">PAIEMENT</p>
+                        <p style="color:#888; font-size:0.8rem;">PAIEMENT</p>
                         <p style="font-weight:600;"><?php echo ucfirst($detail_vente['mode_paiement']); ?></p>
                     </div>
                     <div>
-                        <p style="color:#94A3B8; font-size:0.8rem;">DATE</p>
+                        <p style="color:#888; font-size:0.8rem;">DATE</p>
                         <p style="font-weight:600;"><?php echo date('d/m/Y à H:i', strtotime($detail_vente['date_vente'])); ?></p>
                     </div>
                 </div>
@@ -232,9 +232,9 @@ if (isset($_GET['voir'])) {
                             <td><strong>$<?php echo number_format($l['sous_total'], 2); ?></strong></td>
                         </tr>
                     <?php endwhile; ?>
-                    <tr style="background:#F8FAFC;">
-                        <td colspan="3" style="text-align:right; font-weight:700; padding:14px 24px;">TOTAL</td>
-                        <td style="font-weight:700; font-size:1.1rem; color:#0D9488;">
+                    <tr style="background:#111;">
+                        <td colspan="3" style="text-align:right; font-weight:700; padding:14px 24px; color:#F0F0F0;">TOTAL</td>
+                        <td style="font-weight:700; font-size:1.1rem; color:#D4AF37;">
                             $<?php echo number_format($detail_vente['montant_total'], 2); ?>
                         </td>
                     </tr>
@@ -281,7 +281,7 @@ if (isset($_GET['voir'])) {
                     </div>
 
                     <!-- 5 fixed product rows — PHP skips rows left on "Aucun" -->
-                    <p style="font-size:0.85rem; color:#94A3B8; margin-bottom:12px;">
+                    <p style="font-size:0.85rem; color:#888; margin-bottom:12px;">
                         Sélectionnez jusqu'à 5 produits — laissez les lignes inutiles sur "Aucun".
                     </p>
 
@@ -297,7 +297,7 @@ if (isset($_GET['voir'])) {
                         <tbody>
                         <?php for ($i = 0; $i < 5; $i++): ?>
                             <tr>
-                                <td style="color:#94A3B8;"><?php echo $i + 1; ?></td>
+                                <td style="color:#888;"><?php echo $i + 1; ?></td>
                                 <td>
                                     <select name="id_produit[]" style="width:280px;">
                                         <option value="0">-- Aucun --</option>
@@ -310,7 +310,7 @@ if (isset($_GET['voir'])) {
                                         <?php endforeach; ?>
                                     </select>
                                 </td>
-                                <td style="color:#94A3B8; font-size:0.85rem;">(affiché dans le menu)</td>
+                                <td style="color:#888; font-size:0.85rem;">(affiché dans le menu)</td>
                                 <td>
                                     <input type="number" name="quantite[]" value="1" min="1" style="width:70px;">
                                 </td>
@@ -372,10 +372,6 @@ if (isset($_GET['voir'])) {
     </main>
 </div>
 
-<style>
-.alert-msg { padding:12px 18px; border-radius:8px; margin-bottom:20px; font-weight:500; font-size:0.9rem; }
-.alert-msg.success { background:#D1FAE5; color:#065F46; border-left:4px solid #059669; }
-.alert-msg.danger  { background:#FEE2E2; color:#991B1B; border-left:4px solid #DC2626; }
-</style>
+<!-- alert-msg styles are in style.css -->
 </body>
 </html>

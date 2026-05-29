@@ -296,10 +296,6 @@ $utilisateurs = mysqli_query($conn,
     </main>
 </div>
 
-<style>
-.alert-msg { padding:12px 18px; border-radius:8px; margin-bottom:20px; font-weight:500; font-size:0.9rem; }
-.alert-msg.success { background:#D1FAE5; color:#065F46; border-left:4px solid #059669; }
-.alert-msg.danger  { background:#FEE2E2; color:#991B1B; border-left:4px solid #DC2626; }
-</style>
+<!-- alert-msg styles are in style.css -->
 </body>
 </html>

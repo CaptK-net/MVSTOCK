@@ -239,11 +239,11 @@ $top_clients = mysqli_query($conn,
                         <td>$<?php echo number_format($moyenne, 2); ?></td>
                     </tr>
                 <?php endwhile; ?>
-                    <tr style="background:#F0FDF4; font-weight:700;">
-                        <td>TOTAL</td>
-                        <td><?php echo $grand_total_nb; ?> ventes</td>
-                        <td style="color:#0D9488;">$<?php echo number_format($grand_total_ca, 2); ?></td>
-                        <td>—</td>
+                    <tr style="background:#111; font-weight:700;">
+                        <td style="color:#F0F0F0;">TOTAL</td>
+                        <td style="color:#F0F0F0;"><?php echo $grand_total_nb; ?> ventes</td>
+                        <td style="color:#D4AF37;">$<?php echo number_format($grand_total_ca, 2); ?></td>
+                        <td style="color:#888;">—</td>
                     </tr>
                 </tbody>
             </table>
