@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<style>
+  body { font-family: Arial, sans-serif; font-size: 12pt; color: #222; margin: 0; padding: 0; }
+  .page { width: 21cm; margin: 0 auto; padding: 2.5cm; }
+
+  /* Cover page */
+  .cover { text-align: center; padding: 4cm 2cm; min-height: 24cm; display: flex; flex-direction: column; justify-content: center; align-items: center; page-break-after: always; }
+  .cover h1 { font-size: 28pt; color: #0D9488; margin-bottom: 0.3cm; }
+  .cover h2 { font-size: 16pt; color: #555; font-weight: normal; margin-bottom: 2cm; }
+  .cover-line { width: 6cm; height: 3px; background: #0D9488; margin: 0.5cm auto; }
+  .cover-info { font-size: 13pt; line-height: 2; color: #333; }
+  .cover-info strong { color: #0D9488; }
+
+  /* TOC */
+  .toc { page-break-after: always; }
+  .toc h2 { color: #0D9488; font-size: 18pt; border-bottom: 2px solid #0D9488; padding-bottom: 0.3cm; margin-bottom: 0.8cm; }
+  .toc-item { display: flex; justify-content: space-between; padding: 4px 0; font-size: 11pt; border-bottom: 1px dotted #ccc; }
+  .toc-item.h2 { padding-left: 1cm; color: #555; font-size: 10.5pt; }
+
+  /* Section headings */
+  h1.section { font-size: 18pt; color: #0D9488; border-bottom: 2px solid #0D9488; padding-bottom: 0.2cm; margin-top: 1cm; margin-bottom: 0.5cm; page-break-before: always; }
+  h1.section:first-of-type { page-break-before: avoid; }
+  h2.subsection { font-size: 14pt; color: #0D9488; margin-top: 0.8cm; margin-bottom: 0.3cm; }
+  p { line-height: 1.6; margin-bottom: 0.4cm; text-align: justify; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; margin: 0.5cm 0; font-size: 11pt; }
+  th { background-color: #0D9488; color: white; padding: 8px 10px; text-align: left; font-weight: bold; }
+  td { padding: 7px 10px; border: 1px solid #ddd; vertical-align: top; }
+  tr:nth-child(even) td { background-color: #f5fafa; }
+
+  /* Code blocks */
+  .code { background: #f4f4f4; border-left: 4px solid #0D9488; padding: 0.3cm 0.5cm; font-family: Courier New, monospace; font-size: 10pt; margin: 0.4cm 0; white-space: pre-wrap; }
+
+  /* Lists */
+  ul, ol { line-height: 1.8; margin-bottom: 0.4cm; padding-left: 1.5cm; }
+  li { margin-bottom: 0.15cm; }
+
+  /* File tree */
+  .filetree { background: #f9f9f9; border: 1px solid #ddd; padding: 0.4cm 0.8cm; font-family: Courier New, monospace; font-size: 10.5pt; margin: 0.4cm 0; line-height: 1.8; }
+  .filetree span { color: #0D9488; font-weight: bold; }
+
+  /* Badges */
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10pt; font-weight: bold; }
+  .badge-green { background: #D1FAE5; color: #065F46; }
+  .badge-red   { background: #FEE2E2; color: #991B1B; }
+  .badge-blue  { background: #DBEAFE; color: #1E40AF; }
+
+  /* Steps */
+  .step { display: flex; gap: 0.5cm; margin-bottom: 0.4cm; align-items: flex-start; }
+  .step-num { background: #0D9488; color: white; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 11pt; flex-shrink: 0; }
+
+  /* Annex */
+  .annex-title { color: #0D9488; font-size: 13pt; font-weight: bold; margin-top: 0.6cm; margin-bottom: 0.2cm; }
+
+  @media print {
+    .page { margin: 0; padding: 2cm; }
+    h1.section { page-break-before: always; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- PAGE DE COUVERTURE                                     -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="cover">
+  <div style="font-size:11pt; color:#888; margin-bottom:2cm;">Année académique 2025–2026</div>
+  <div class="cover-line"></div>
+  <h1>Système Intelligent de<br>Gestion des Ventes</h1>
+  <h2>Projet Informatique — Application Web</h2>
+  <div class="cover-line"></div>
+  <div style="height:1.5cm;"></div>
+  <div class="cover-info">
+    <p><strong>Étudiant :</strong> Karim Hassan</p>
+    <p><strong>Encadrant :</strong> ___________________________</p>
+    <p><strong>Établissement :</strong> ___________________________</p>
+    <p><strong>Date de rendu :</strong> 04 Juin 2026</p>
+  </div>
+  <div style="height:2cm;"></div>
+  <div style="font-size:10pt; color:#888;">
+    Code source : github.com/CaptK-net/cleanify
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- TABLE DES MATIÈRES                                     -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="toc">
+  <h2>Table des Matières</h2>
+  <div class="toc-item"><span>1. Introduction</span><span>3</span></div>
+  <div class="toc-item"><span>2. Informations Pratiques</span><span>3</span></div>
+  <div class="toc-item h2"><span>2.1 Participants</span><span>3</span></div>
+  <div class="toc-item h2"><span>2.2 Calendrier et planification</span><span>4</span></div>
+  <div class="toc-item h2"><span>2.3 Technologies utilisées</span><span>4</span></div>
+  <div class="toc-item"><span>3. Objectifs et Cahier des Charges</span><span>5</span></div>
+  <div class="toc-item h2"><span>3.1 Objectif général</span><span>5</span></div>
+  <div class="toc-item h2"><span>3.2 Fonctionnalités requises</span><span>5</span></div>
+  <div class="toc-item h2"><span>3.3 Types d'utilisateurs</span><span>5</span></div>
+  <div class="toc-item"><span>4. Modélisation de la Base de Données</span><span>6</span></div>
+  <div class="toc-item h2"><span>4.1 Modèle Entité-Association (E/A)</span><span>6</span></div>
+  <div class="toc-item h2"><span>4.2 Modèle Relationnel</span><span>7</span></div>
+  <div class="toc-item h2"><span>4.3 Règles d'intégrité</span><span>7</span></div>
+  <div class="toc-item"><span>5. Structure du Projet</span><span>8</span></div>
+  <div class="toc-item"><span>6. Réalisation</span><span>10</span></div>
+  <div class="toc-item"><span>7. Interface Homme-Machine</span><span>12</span></div>
+  <div class="toc-item"><span>8. Validation et Tests</span><span>13</span></div>
+  <div class="toc-item"><span>9. Conclusion</span><span>15</span></div>
+  <div class="toc-item"><span>Annexes</span><span>15</span></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- SECTION 1 — INTRODUCTION                              -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<h1 class="section">1. Introduction</h1>
+
+<p>Ce projet s'inscrit dans le cadre du module informatique de deuxième année. Il consiste en la conception et le développement d'une application web de gestion des ventes destinée aux petits commerces. L'application, nommée <strong>GestVente</strong>, permet à un gérant ou à ses agents de vente de gérer l'ensemble des opérations commerciales d'une boutique : catalogue de produits, suivi des clients, enregistrement des ventes, gestion des stocks et consultation des statistiques.</p>
+
+<p>Le projet a été appliqué au cas concret de la boutique <strong>Cleanify Lebanon</strong> (cleanifyleb.com), une entreprise spécialisée dans la vente de produits de nettoyage et d'hygiène. Ce contexte réel a permis de valider les fonctionnalités développées sur des données authentiques et de confirmer la viabilité du système dans un cadre commercial concret.</p>
+
+<p>L'application est développée en <strong>PHP</strong> avec une base de données <strong>MySQL</strong>, hébergée localement via EasyPHP Devserver 17. Le code source est intégralement versionné sur GitHub à l'adresse suivante :<br>
+<strong>https://github.com/CaptK-net/cleanify</strong></p>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- SECTION 2 — INFORMATIONS PRATIQUES                    -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<h1 class="section">2. Informations Pratiques</h1>
+
+<h2 class="subsection">2.1 Participants</h2>
+<ul>
+  <li><strong>Étudiant :</strong> Karim Hassan</li>
+  <li><strong>Encadrant :</strong> ___________________________</li>
+  <li><strong>Tuteur professionnel :</strong> ___________________________</li>
+</ul>
+
+<h2 class="subsection">2.2 Calendrier et planification</h2>
+<table>
+  <tr><th>Période</th><th>Tâches réalisées</th><th>Statut</th></tr>
+  <tr><td>26–28 Mai 2026</td><td>Analyse des besoins, conception de la base de données, modèle E/A, modèle relationnel</td><td><span class="badge badge-green">Réalisé</span></td></tr>
+  <tr><td>29–30 Mai 2026</td><td>Développement : config.php, login.php, style.css, accueil.php</td><td><span class="badge badge-green">Réalisé</span></td></tr>
+  <tr><td>02–03 Juin 2026</td><td>Développement : produits.php, clients.php, ventes.php</td><td><span class="badge badge-green">Réalisé</span></td></tr>
+  <tr><td>03–04 Juin 2026</td><td>Développement : stats.php, utilisateurs.php, données de démo</td><td><span class="badge badge-green">Réalisé</span></td></tr>
+  <tr><td>04 Juin 2026</td><td>Finalisation, tests, rédaction du rapport, dépôt sur la plateforme</td><td><span class="badge badge-green">Réalisé</span></td></tr>
+</table>
+
+<h2 class="subsection">2.3 Technologies utilisées</h2>
+<table>
+  <tr><th>Technologie</th><th>Rôle dans le projet</th></tr>
+  <tr><td><strong>PHP 5.6</strong></td><td>Langage serveur — logique métier et interaction avec la base de données</td></tr>
+  <tr><td><strong>MySQL</strong></td><td>Système de gestion de base de données relationnelle</td></tr>
+  <tr><td><strong>HTML / CSS</strong></td><td>Structure et mise en forme des pages web</td></tr>
+  <tr><td><strong>EasyPHP Devserver 17</strong></td><td>Serveur local Apache + MySQL pour le développement</td></tr>
+  <tr><td><strong>phpMyAdmin</strong></td><td>Interface graphique pour la gestion de la base de données</td></tr>
+  <tr><td><strong>GitHub</strong></td><td>Versionnement et sauvegarde du code source</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- SECTION 3 — OBJECTIFS ET CAHIER DES CHARGES           -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<h1 class="section">3. Objectifs et Cahier des Charges</h1>
+
+<h2 class="subsection">3.1 Objectif général</h2>
+<p>L'objectif est de développer un <strong>système web complet</strong> permettant à un petit commerce de gérer l'intégralité de son activité commerciale depuis une interface simple et sécurisée, accessible par un administrateur et ses agents de vente.</p>
+
+<h2 class="subsection">3.2 Fonctionnalités requises</h2>
+<table>
+  <tr><th>Fonctionnalité</th><th>Description</th><th>Priorité</th></tr>
+  <tr><td>Authentification</td><td>Connexion sécurisée avec gestion des rôles (admin / agent)</td><td><span class="badge badge-red">Haute</span></td></tr>
+  <tr><td>Gestion des produits</td><td>Ajout, modification, suppression du catalogue avec catégories</td><td><span class="badge badge-red">Haute</span></td></tr>
+  <tr><td>Gestion des clients</td><td>Enregistrement et suivi des informations clients</td><td><span class="badge badge-red">Haute</span></td></tr>
+  <tr><td>Enregistrement des ventes</td><td>Saisie de ventes avec plusieurs produits et mode de paiement</td><td><span class="badge badge-red">Haute</span></td></tr>
+  <tr><td>Gestion des stocks</td><td>Suivi du stock actuel avec alertes automatiques par seuil</td><td><span class="badge badge-red">Haute</span></td></tr>
+  <tr><td>Gestion des utilisateurs</td><td>Création et gestion des comptes agents (admin seulement)</td><td><span class="badge badge-red">Haute</span></td></tr>
+  <tr><td>Statistiques et rapports</td><td>Rapports journaliers, mensuels, annuels avec classements</td><td><span class="badge badge-blue">Moyenne</span></td></tr>
+  <tr><td>Programme de fidélité</td><td>Attribution automatique de points aux clients par vente</td><td><span class="badge badge-blue">Moyenne</span></td></tr>
+  <tr><td>Journal de connexion</td><td>Traçabilité des accès au système avec IP et horodatage</td><td><span class="badge badge-blue">Moyenne</span></td></tr>
+</table>
+
+<h2 class="subsection">3.3 Types d'utilisateurs</h2>
+<p>Le système distingue <strong>deux types d'utilisateurs</strong> du système :</p>
+<ul>
+  <li><strong>Administrateur :</strong> accès total à toutes les fonctionnalités, y compris la gestion des comptes utilisateurs</li>
+  <li><strong>Agent de vente :</strong> accès aux fonctionnalités commerciales (produits, clients, ventes, statistiques)</li>
+</ul>
+<p>À noter : les <strong>clients de la boutique ne se connectent pas</strong> au système. Ils sont des enregistrements dans la base de données, gérés par les agents. Cette séparation est reflétée par deux tables distinctes : <code>utilisateur</code> et <code>client</code>.</p>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- SECTION 4 — MODÉLISATION DE LA BASE DE DONNÉES        -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<h1 class="section">4. Modélisation de la Base de Données</h1>
+
+<h2 class="subsection">4.1 Modèle Entité-Association (E/A)</h2>
+<p>Le modèle E/A identifie <strong>6 entités principales</strong> et leurs relations :</p>
+
+<table>
+  <tr><th>Entité</th><th>Attributs principaux</th></tr>
+  <tr><td><strong>UTILISATEUR</strong></td><td>id_utilisateur, nom, prenom, email, mot_de_passe, role, date_creation</td></tr>
+  <tr><td><strong>CLIENT</strong></td><td>id_client, nom, prenom, telephone, adresse, email, date_inscription, points_fidelite</td></tr>
+  <tr><td><strong>PRODUIT</strong></td><td>id_produit, designation, description, prix_unitaire, stock_actuel, seuil_alerte, date_ajout</td></tr>
+  <tr><td><strong>CATEGORIE</strong></td><td>id_categorie, nom_categorie, description</td></tr>
+  <tr><td><strong>VENTE</strong></td><td>id_vente, date_vente, montant_total, mode_paiement</td></tr>
+  <tr><td><strong>JOURNAL_CONNEXION</strong></td><td>id_journal, date_connexion, action, adresse_ip</td></tr>
+</table>
+
+<p><strong>Relations entre entités :</strong></p>
+<table>
+  <tr><th>Relation</th><th>Entités</th><th>Cardinalités</th></tr>
+  <tr><td>Enregistre</td><td>UTILISATEUR — CLIENT</td><td>(0,n) — (0,n)</td></tr>
+  <tr><td>Effectue</td><td>UTILISATEUR — JOURNAL_CONNEXION</td><td>(0,n) — (1,1)</td></tr>
+  <tr><td>Concerne</td><td>CLIENT — VENTE</td><td>(0,n) — (1,1)</td></tr>
+  <tr><td>Concerne (via LIGNE_VENTE)</td><td>VENTE — PRODUIT</td><td>(0,n) — (0,n)</td></tr>
+  <tr><td>Appartient</td><td>PRODUIT — CATEGORIE</td><td>(0,1) — (0,n)</td></tr>
+</table>
+
+<h2 class="subsection">4.2 Modèle Relationnel</h2>
+<p>Les 7 tables issues du modèle E/A (le symbole # désigne une clé étrangère) :</p>
+<div class="code">1. CATEGORIE       (id_categorie, nom_categorie, description)
+2. UTILISATEUR     (id_utilisateur, nom, prenom, email, mot_de_passe, role, date_creation)
+3. CLIENT          (id_client, nom, prenom, telephone, adresse, email, date_inscription, points_fidelite)
+4. PRODUIT         (id_produit, designation, description, prix_unitaire, stock_actuel, seuil_alerte, date_ajout, #id_categorie)
+5. VENTE           (id_vente, date_vente, montant_total, mode_paiement, #id_client, #id_utilisateur)
+6. LIGNE_VENTE     (id_ligne, quantite, prix_unitaire, #id_vente, #id_produit)
+7. JOURNAL_CONNEXION (id_journal, date_connexion, action, adresse_ip, #id_utilisateur)</div>
+
+<h2 class="subsection">4.3 Règles d'intégrité référentielle</h2>
+<table>
+  <tr><th>Règle</th><th>Table concernée</th><th>Effet</th></tr>
+  <tr><td><code>ON DELETE CASCADE</code></td><td>ligne_vente → vente</td><td>Supprimer une vente supprime automatiquement toutes ses lignes</td></tr>
+  <tr><td><code>ON DELETE SET NULL</code></td><td>vente.id_client → client</td><td>Supprimer un client conserve ses ventes avec client = NULL</td></tr>
+  <tr><td><code>ON DELETE RESTRICT</code></td><td>vente.id_utilisateur → utilisateur</td><td>Impossible de supprimer un utilisateur ayant des ventes enregistrées</td></tr>
+  <tr><td><code>ON DELETE SET NULL</code></td><td>produit.id_categorie → categorie</td><td>Supprimer une catégorie ne supprime pas les produits</td></tr>
+  <tr><td>Hachage MD5</td><td>utilisateur.mot_de_passe</td><td>Les mots de passe ne sont jamais stockés en clair</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- SECTION 5 — STRUCTURE DU PROJET                       -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<h1 class="section">5. Structure du Projet</h1>
+
+<h2 class="subsection">5.1 Arborescence des fichiers</h2>
+<div class="filetree">
+GestVente/
+├── <span>config.php</span>           — Connexion à la base de données MySQL
+├── <span>login.php</span>            — Page de connexion (index du site)
+├── <span>accueil.php</span>          — Tableau de bord principal
+├── <span>produits.php</span>         — Gestion du catalogue produits
+├── <span>clients.php</span>          — Gestion des clients
+├── <span>ventes.php</span>           — Enregistrement des ventes
+├── <span>stats.php</span>            — Statistiques et rapports
+├── <span>utilisateurs.php</span>     — Gestion des utilisateurs (admin seulement)
+├── <span>deconnexion.php</span>      — Déconnexion et journalisation
+├── <span>style.css</span>            — Feuille de style globale
+├── <span>cleanify_db.sql</span>      — Script de création de la base de données
+└── <span>demo_data.sql</span>        — Données de démonstration
+</div>
+
+<h2 class="subsection">5.2 Rôle de chaque fichier</h2>
+<table>
+  <tr><th>Fichier</th><th>Rôle principal</th></tr>
+  <tr><td><strong>config.php</strong></td><td>Ouvre et vérifie la connexion MySQL. Partagé avec tous les fichiers via <code>require_once</code>. Centralise les paramètres de connexion en un seul endroit.</td></tr>
+  <tr><td><strong>login.php</strong></td><td>Authentifie l'utilisateur via la table <code>utilisateur</code>. Lance la session PHP et journalise la connexion dans <code>journal_connexion</code>.</td></tr>
+  <tr><td><strong>deconnexion.php</strong></td><td>Journalise la déconnexion dans <code>journal_connexion</code> puis détruit la session. Redirige vers la page de connexion.</td></tr>
+  <tr><td><strong>accueil.php</strong></td><td>Affiche 4 statistiques live (ventes du jour, CA, clients, alertes stock), les 5 dernières ventes et la liste des produits en alerte.</td></tr>
+  <tr><td><strong>produits.php</strong></td><td>CRUD complet sur la table <code>produit</code>. Gestion du stock avec badges de statut. Catégorie sélectionnée via liste déroulante dynamique.</td></tr>
+  <tr><td><strong>clients.php</strong></td><td>CRUD complet sur la table <code>client</code>. Affichage des points de fidélité. Pas de mot de passe — les clients ne se connectent pas.</td></tr>
+  <tr><td><strong>ventes.php</strong></td><td>Enregistrement d'une vente en 4 étapes automatiques : insertion vente, lignes, mise à jour stock, points de fidélité. Historique et vue détaillée.</td></tr>
+  <tr><td><strong>stats.php</strong></td><td>Rapports journaliers, mensuels, annuels avec totaux. Top 5 produits et top 5 clients. Sélection de période par liens PHP.</td></tr>
+  <tr><td><strong>utilisateurs.php</strong></td><td>Gestion des comptes admin et agent. Protégé : admin seulement. Protections contre la suppression de soi-même ou d'un utilisateur actif.</td></tr>
+  <tr><td><strong>style.css</strong></td><td>Feuille de style globale : login, sidebar, cartes de statistiques, tableaux, badges, boutons, formulaires. Une seule feuille pour toutes les pages.</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- SECTION 6 — RÉALISATION                               -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<h1 class="section">6. Réalisation</h1>
+
+<h2 class="subsection">6.1 Architecture de l'application</h2>
+<p>L'application suit une <strong>architecture procédurale en PHP</strong> où chaque fichier joue à la fois le rôle de contrôleur (traitement des requêtes POST/GET) et de vue (génération du HTML). La connexion à la base de données est centralisée dans <code>config.php</code> et partagée via <code>require_once</code>.</p>
+
+<h2 class="subsection">6.2 Authentification et sessions</h2>
+<p>La sécurité de l'application repose sur deux mécanismes complémentaires :</p>
+<ul>
+  <li><strong>Hachage MD5 des mots de passe</strong> : les mots de passe ne sont jamais stockés en clair dans la base de données. À la connexion, le mot de passe saisi est haché avec MD5() avant d'être comparé.</li>
+  <li><strong>Sessions PHP</strong> : après connexion, les informations de l'utilisateur (id, nom, rôle) sont stockées dans <code>$_SESSION</code> et vérifiées au début de chaque page protégée.</li>
+</ul>
+<p>Chaque page protégée commence systématiquement par le bloc suivant :</p>
+<div class="code">session_start();
+if (!isset($_SESSION['user_id'])) {
+    header("Location: login.php");
+    exit();
+}</div>
+
+<h2 class="subsection">6.3 Enregistrement d'une vente</h2>
+<p>L'enregistrement d'une vente est l'opération la plus complexe de l'application. Elle se déroule en <strong>4 étapes séquentielles</strong> :</p>
+
+<div class="step"><div class="step-num">1</div><div><strong>INSERT dans vente</strong> — création de l'en-tête de vente avec le montant total, le mode de paiement, le client et l'agent responsable.</div></div>
+<div class="step"><div class="step-num">2</div><div><strong>INSERT dans ligne_vente</strong> — insertion d'une ligne par produit sélectionné avec la quantité et le prix unitaire au moment de la vente.</div></div>
+<div class="step"><div class="step-num">3</div><div><strong>UPDATE produit</strong> — décrémentation du <code>stock_actuel</code> de chaque produit vendu (<code>stock_actuel = stock_actuel - quantite</code>).</div></div>
+<div class="step"><div class="step-num">4</div><div><strong>UPDATE client</strong> — ajout de points de fidélité au client si la vente n'est pas anonyme (règle : 1 point par dollar dépensé, arrondi à l'entier inférieur).</div></div>
+
+<h2 class="subsection">6.4 Alertes de stock automatiques</h2>
+<p>Chaque produit possède un <code>seuil_alerte</code> personnalisable. Le système compare <code>stock_actuel</code> avec <code>seuil_alerte</code> à chaque affichage et applique automatiquement le badge correspondant :</p>
+<table>
+  <tr><th>Condition</th><th>Badge affiché</th><th>Couleur</th></tr>
+  <tr><td><code>stock_actuel = 0</code></td><td>Rupture</td><td>Rouge</td></tr>
+  <tr><td><code>stock_actuel &lt;= seuil_alerte</code></td><td>Stock bas</td><td>Orange</td></tr>
+  <tr><td><code>stock_actuel &gt; seuil_alerte</code></td><td>En stock</td><td>Vert</td></tr>
+</table>
+
+<h2 class="subsection">6.5 Journal de connexion</h2>
+<p>Chaque connexion et déconnexion est automatiquement enregistrée dans la table <code>journal_connexion</code> avec :</p>
+<ul>
+  <li>La <strong>date et l'heure</strong> de l'événement</li>
+  <li>Le <strong>type d'action</strong> : "connexion" ou "deconnexion"</li>
+  <li>L'<strong>adresse IP</strong> du poste utilisé (<code>$_SERVER['REMOTE_ADDR']</code>)</li>
+  <li>L'<strong>identifiant de l'utilisateur</strong> concerné (clé étrangère vers <code>utilisateur</code>)</li>
+</ul>
+<p>Cela permet à l'administrateur de disposer d'un historique complet des accès au système.</p>
+
+<h2 class="subsection">6.6 Statistiques et rapports</h2>
+<p>La page de statistiques propose trois niveaux d'analyse sélectionnables via des liens PHP (sans JavaScript) :</p>
+<table>
+  <tr><th>Vue</th><th>Requête SQL utilisée</th><th>Période couverte</th></tr>
+  <tr><td>Journalière</td><td><code>GROUP BY DATE(date_vente)</code></td><td>Mois en cours</td></tr>
+  <tr><td>Mensuelle (défaut)</td><td><code>GROUP BY MONTH(date_vente)</code></td><td>Année en cours</td></tr>
+  <tr><td>Annuelle</td><td><code>GROUP BY YEAR(date_vente)</code></td><td>Toutes les années</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- SECTION 7 — INTERFACE HOMME-MACHINE                   -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<h1 class="section">7. Interface Homme-Machine</h1>
+
+<h2 class="subsection">7.1 Principes de conception</h2>
+<p>L'interface a été conçue selon les principes suivants :</p>
+<ul>
+  <li><strong>Simplicité</strong> : une seule feuille de style (<code>style.css</code>) pour toutes les pages, couleur principale teal (#0D9488)</li>
+  <li><strong>Cohérence</strong> : sidebar de navigation identique sur toutes les pages avec lien actif mis en évidence</li>
+  <li><strong>Feedback visuel</strong> : messages de succès (vert) et d'erreur (rouge) après chaque action</li>
+  <li><strong>Accessibilité</strong> : états vides explicites avec icône et message lorsque les tableaux n'ont pas de données</li>
+</ul>
+
+<h2 class="subsection">7.2 Structure des pages</h2>
+<p>Chaque page (sauf login) est composée de trois zones :</p>
+<ul>
+  <li><strong>Sidebar fixe</strong> à gauche (250px) : logo, liens de navigation, bouton déconnexion</li>
+  <li><strong>Barre supérieure</strong> : titre de la page, nom et rôle de l'utilisateur connecté</li>
+  <li><strong>Zone de contenu</strong> principale : tableaux, formulaires, cartes de statistiques</li>
+</ul>
+
+<h2 class="subsection">7.3 Contrôle d'accès par rôle</h2>
+<table>
+  <tr><th>Page</th><th>Administrateur</th><th>Agent de vente</th></tr>
+  <tr><td>accueil.php</td><td><span class="badge badge-green">Accès complet</span></td><td><span class="badge badge-green">Accès complet</span></td></tr>
+  <tr><td>produits.php</td><td><span class="badge badge-green">Accès complet</span></td><td><span class="badge badge-green">Accès complet</span></td></tr>
+  <tr><td>clients.php</td><td><span class="badge badge-green">Accès complet</span></td><td><span class="badge badge-green">Accès complet</span></td></tr>
+  <tr><td>ventes.php</td><td><span class="badge badge-green">Accès complet</span></td><td><span class="badge badge-green">Accès complet</span></td></tr>
+  <tr><td>stats.php</td><td><span class="badge badge-green">Accès complet</span></td><td><span class="badge badge-green">Accès complet</span></td></tr>
+  <tr><td>utilisateurs.php</td><td><span class="badge badge-green">Accès complet</span></td><td><span class="badge badge-red">Accès refusé (redirection)</span></td></tr>
+  <tr><td>Lien "Utilisateurs" (sidebar)</td><td><span class="badge badge-green">Visible</span></td><td><span class="badge badge-red">Masqué</span></td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- SECTION 8 — VALIDATION ET TESTS                       -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<h1 class="section">8. Validation et Tests</h1>
+
+<h2 class="subsection">8.1 Tests fonctionnels réalisés</h2>
+<table>
+  <tr><th>Réf.</th><th>Action testée</th><th>Résultat attendu</th><th>Résultat obtenu</th></tr>
+  <tr><td>T01</td><td>Connexion avec email et mot de passe corrects</td><td>Redirection vers accueil.php, session créée</td><td><span class="badge badge-green">Conforme</span></td></tr>
+  <tr><td>T02</td><td>Connexion avec mot de passe incorrect</td><td>Message d'erreur affiché, pas de session</td><td><span class="badge badge-green">Conforme</span></td></tr>
+  <tr><td>T03</td><td>Accès direct à accueil.php sans être connecté</td><td>Redirection automatique vers login.php</td><td><span class="badge badge-green">Conforme</span></td></tr>
+  <tr><td>T04</td><td>Ajout d'un nouveau produit via le formulaire</td><td>Produit visible dans la liste avec badge stock</td><td><span class="badge badge-green">Conforme</span></td></tr>
+  <tr><td>T05</td><td>Modification d'un produit existant</td><td>Données mises à jour en base de données</td><td><span class="badge badge-green">Conforme</span></td></tr>
+  <tr><td>T06</td><td>Suppression d'un produit</td><td>Produit retiré de la liste après confirmation</td><td><span class="badge badge-green">Conforme</span></td></tr>
+  <tr><td>T07</td><td>Ajout d'un nouveau client</td><td>Client visible avec 0 points de fidélité</td><td><span class="badge badge-green">Conforme</span></td></tr>
+  <tr><td>T08</td><td>Enregistrement d'une vente avec client identifié</td><td>Stock diminué, points fidélité augmentés</td><td><span class="badge badge-green">Conforme</span></td></tr>
+  <tr><td>T09</td><td>Vente avec quantité supérieure au stock disponible</td><td>Message d'erreur, vente non enregistrée</td><td><span class="badge badge-green">Conforme</span></td></tr>
+  <tr><td>T10</td><td>Accès à utilisateurs.php en tant qu'agent</td><td>Redirection vers accueil.php</td><td><span class="badge badge-green">Conforme</span></td></tr>
+  <tr><td>T11</td><td>Tentative de suppression d'un utilisateur avec des ventes</td><td>Bouton désactivé, message explicatif</td><td><span class="badge badge-green">Conforme</span></td></tr>
+  <tr><td>T12</td><td>Déconnexion</td><td>Session détruite, redirection login, journal enregistré</td><td><span class="badge badge-green">Conforme</span></td></tr>
+</table>
+
+<h2 class="subsection">8.2 Points d'amélioration possibles</h2>
+<ul>
+  <li>Remplacement du hachage MD5 par <strong>bcrypt</strong> (via <code>password_hash()</code>) pour une sécurité renforcée</li>
+  <li>Utilisation de <strong>requêtes préparées</strong> (prepared statements) pour prévenir les injections SQL</li>
+  <li>Ajout d'une <strong>pagination</strong> sur les tableaux longs</li>
+  <li>Export des statistiques en <strong>PDF ou CSV</strong></li>
+  <li>Interface responsive pour une utilisation sur mobile ou tablette</li>
+</ul>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- SECTION 9 — CONCLUSION                                -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<h1 class="section">9. Conclusion</h1>
+
+<p>Ce projet a permis de développer une <strong>application web de gestion des ventes fonctionnelle et complète</strong>, couvrant l'ensemble des besoins d'un petit commerce : authentification sécurisée, gestion du catalogue, suivi clients, enregistrement des ventes, alertes stock, statistiques et traçabilité des accès.</p>
+
+<p>La séparation entre les <strong>utilisateurs du système</strong> (table <code>utilisateur</code>) et les <strong>clients de la boutique</strong> (table <code>client</code>) en deux entités distinctes reflète une modélisation correcte des rôles métier et facilite la gestion des droits d'accès.</p>
+
+<p>L'application a été validée sur des données réelles issues de la boutique <strong>Cleanify Lebanon</strong>, ce qui a permis de confirmer sa viabilité dans un contexte commercial concret et de démontrer la généricité du système, applicable à n'importe quel petit commerce.</p>
+
+<p>Les axes d'amélioration identifiés — sécurité renforcée des mots de passe, requêtes préparées, pagination, export — constituent des perspectives de développement pour une version future plus robuste et prête pour un déploiement en production.</p>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- ANNEXES                                               -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<h1 class="section">Annexes</h1>
+
+<div class="annex-title">Annexe A — Comptes de démonstration</div>
+<table>
+  <tr><th>Rôle</th><th>Email</th><th>Mot de passe</th></tr>
+  <tr><td>Administrateur</td><td>admin@systeme.com</td><td>admin123</td></tr>
+  <tr><td>Agent de vente</td><td>agent@gestvente.com</td><td>agent123</td></tr>
+</table>
+
+<div class="annex-title">Annexe B — URLs d'accès</div>
+<table>
+  <tr><th>Ressource</th><th>URL</th></tr>
+  <tr><td>Application web</td><td>http://localhost/GestVente/login.php</td></tr>
+  <tr><td>phpMyAdmin</td><td>http://localhost/phpMyAdmin</td></tr>
+  <tr><td>Dépôt GitHub</td><td>https://github.com/CaptK-net/cleanify</td></tr>
+</table>
+
+<div class="annex-title">Annexe C — Schéma complet de la base de données</div>
+<p>Le script SQL complet de création de la base de données (<code>cleanify_db.sql</code>) ainsi que les données de démonstration (<code>demo_data.sql</code>) sont disponibles dans le dépôt GitHub du projet.</p>
+
+<div class="annex-title">Annexe D — Structure des requêtes principales</div>
+<p><strong>Statistiques du tableau de bord (accueil.php) :</strong></p>
+<div class="code">-- Ventes du jour
+SELECT COUNT(*) AS nb FROM vente WHERE DATE(date_vente) = CURDATE()
+
+-- Chiffre d'affaires du jour
+SELECT SUM(montant_total) AS ca FROM vente WHERE DATE(date_vente) = CURDATE()
+
+-- Produits en alerte stock
+SELECT COUNT(*) AS nb FROM produit WHERE stock_actuel &lt;= seuil_alerte</div>
+
+<p><strong>Dernières ventes avec noms (JOIN) :</strong></p>
+<div class="code">SELECT v.id_vente, v.montant_total,
+       CONCAT(c.prenom, ' ', c.nom) AS client_nom,
+       CONCAT(u.prenom, ' ', u.nom) AS agent_nom
+FROM vente v
+LEFT JOIN client      c ON v.id_client      = c.id_client
+LEFT JOIN utilisateur u ON v.id_utilisateur = u.id_utilisateur
+ORDER BY v.date_vente DESC LIMIT 5</div>
+
+</div><!-- end .page -->
+</body>
+</html>
