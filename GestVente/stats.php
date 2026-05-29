@@ -136,6 +136,9 @@ $top_clients = mysqli_query($conn,
             <a href="clients.php"><span class="icon">👥</span> Clients</a>
             <a href="ventes.php"><span class="icon">🛒</span> Ventes</a>
             <a href="stats.php" class="active"><span class="icon">📊</span> Statistiques</a>
+            <?php if ($_SESSION['user_role'] == 'admin'): ?>
+            <a href="utilisateurs.php"><span class="icon">👤</span> Utilisateurs</a>
+            <?php endif; ?>
         </nav>
         <div class="sidebar-footer">
             <a href="deconnexion.php"><span>🚪</span> Déconnexion</a>

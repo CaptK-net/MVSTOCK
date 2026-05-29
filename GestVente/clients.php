@@ -105,6 +105,9 @@ $total   = mysqli_num_rows($clients);
             <a href="clients.php" class="active"><span class="icon">👥</span> Clients</a>
             <a href="ventes.php"><span class="icon">🛒</span> Ventes</a>
             <a href="stats.php"><span class="icon">📊</span> Statistiques</a>
+            <?php if ($_SESSION['user_role'] == 'admin'): ?>
+            <a href="utilisateurs.php"><span class="icon">👤</span> Utilisateurs</a>
+            <?php endif; ?>
         </nav>
         <div class="sidebar-footer">
             <a href="deconnexion.php"><span>🚪</span> Déconnexion</a>

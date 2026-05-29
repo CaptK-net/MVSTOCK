@@ -2,7 +2,7 @@
 session_start();
 require_once 'config.php';
 
-// Redirect to login if not logged in
+// Redirect to login if the user is not logged in
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
     exit();
@@ -11,17 +11,25 @@ if (!isset($_SESSION['user_id'])) {
 $nom_utilisateur = $_SESSION['user_nom'];
 $role            = $_SESSION['user_role'];
 
-// --- Stat 1: number of sales today ---
+// statistic1: number of sales today
 $res = mysqli_query($conn,
     "SELECT COUNT(*) AS nb FROM vente WHERE DATE(date_vente) = CURDATE()"
+    // count how many rows match the condition
+    // extracting the date part ignoring the time
+    // curdate return today's date
+    // gives the resulat the name nb
 );
 $nb_ventes_aujourd_hui = mysqli_fetch_assoc($res)['nb'];
+// fetching the one result row and reading the nb value
 
-// --- Stat 2: revenue today ---
+
+// statistic2: revenue today
 $res = mysqli_query($conn,
     "SELECT SUM(montant_total) AS ca FROM vente WHERE DATE(date_vente) = CURDATE()"
+    // sum adds all the montant_total values from matching rows
+    // WHERE filter's only today's rows
 );
-// SUM() returns NULL if there are no sales — we use a ternary instead of ?? (PHP 5.6 compatible)
+// SUM() returns NULL if there are no sales
 $row_ca = mysqli_fetch_assoc($res);
 $ca_aujourd_hui = $row_ca['ca'] ? $row_ca['ca'] : 0;
 
@@ -80,6 +88,9 @@ $res_stock = mysqli_query($conn,
             <a href="clients.php"><span class="icon">👥</span> Clients</a>
             <a href="ventes.php"><span class="icon">🛒</span> Ventes</a>
             <a href="stats.php"><span class="icon">📊</span> Statistiques</a>
+            <?php if ($_SESSION['user_role'] == 'admin'): ?>
+            <a href="utilisateurs.php"><span class="icon">👤</span> Utilisateurs</a>
+            <?php endif; ?>
         </nav>
         <div class="sidebar-footer">
             <a href="deconnexion.php"><span>🚪</span> Déconnexion</a>
