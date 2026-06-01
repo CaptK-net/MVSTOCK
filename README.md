@@ -1,2 +1,2 @@
-# GestVente
-Website for cleanify, a business that sells hygiene products that is based in Lebanon.
+# MVSTOCK
+Sales management website that could be used by any type of business.
