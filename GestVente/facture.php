@@ -488,8 +488,10 @@ $pdf->Cell($full_w, 6, 'Thank you for your business. For any questions, please c
 //  This reinforces the MVSTOCK branding at the bottom of the invoice.
 // ============================================================
 // Position the band 32mm from the bottom of the page (footer is at -20mm,
-// so we leave space for it). GetPageHeight() returns 297 for A4.
-$pdf->SetY($pdf->GetPageHeight() - 32);
+// so we leave space for it). A4 page height is always 297mm.
+// (We use the fixed value 297 instead of GetPageHeight() because the
+//  bundled FPDF version does not include that method.)
+$pdf->SetY(297 - 32);
 $pdf->SetFillColor(26, 26, 26);
 // Rect(x, y, width, height, style) — 'F' = fill rectangle
 $pdf->Rect(0, $pdf->GetY(), 210, 12, 'F');
