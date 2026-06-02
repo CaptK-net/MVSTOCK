@@ -1,84 +1,71 @@
 <?php
 /*
  * ============================================================
- * FILE: ventes.php — MODULE VENTES (100 % PHP, sans JavaScript)
+ * FILE: ventes.php — MODULE VENTES
  *
- * Ce fichier gère tout le cycle de vie d'une vente :
- *   1. Afficher un formulaire avec 5 lignes de produits fixes
- *   2. Valider les stocks côté serveur sur chaque ligne
- *   3. Ré-afficher le formulaire avec les valeurs conservées
- *      et les lignes problématiques surlignées en rouge
- *   4. Enregistrer la vente, déduire les stocks, attribuer
- *      des points de fidélité
- *   5. Lister les 20 dernières ventes
- *   6. Afficher le détail d'une vente (?voir=ID)
- *   7. Générer la facture PDF (lien vers facture.php)
+ * Comportements clés :
+ *   1. Formulaire de vente avec lignes dynamiques (+ / poubelle)
+ *   2. Validation des stocks côté PHP — toutes les lignes sont
+ *      vérifiées en une seule passe, pas seulement la première
+ *   3. En cas d'erreur de stock : la page recharge avec le
+ *      formulaire entièrement pré-rempli ET les lignes
+ *      problématiques surlignées en rouge
+ *   4. La vente n'est enregistrée que si tout passe
+ *   5. Déduction automatique du stock après vente
+ *   6. Attribution de points de fidélité au client
+ *   7. Liste des 20 dernières ventes
+ *   8. Vue détail d'une vente (?voir=ID) + facture PDF
  *
- * STRATÉGIE DE VALIDATION DES STOCKS (PHP uniquement)
- * ---------------------------------------------------
- * Quand l'agent clique "Enregistrer", le navigateur envoie
- * le formulaire au serveur PHP. PHP vérifie TOUTES les lignes
- * d'un seul coup (pas seulement la première erreur trouvée).
- * Si des lignes dépassent le stock disponible :
- *   - La page se recharge avec le formulaire pré-rempli
+ * VALIDATION DES STOCKS (PHP uniquement, pas de JS)
+ * -------------------------------------------------
+ * Quand l'agent clique "Enregistrer", le formulaire est envoyé
+ * au serveur PHP. PHP vérifie TOUTES les lignes produit contre
+ * le stock réel en base de données (pas seulement la première).
+ * Si des lignes dépassent le stock :
+ *   - La page recharge avec le formulaire exactement tel qu'il
+ *     était (chaque produit et quantité conservés)
  *   - Les lignes problématiques ont la classe CSS "row-error"
  *     → bordure rouge + animation de pulsation (CSS pur)
- *   - Les autres lignes restent intactes
- * La vente n'est enregistrée que quand toutes les lignes
- * passent la validation.
+ *   - Un message d'erreur s'affiche dans chaque ligne concernée
+ * Le total en temps réel et les boutons +/poubelle continuent
+ * de fonctionner normalement via JavaScript.
  * ============================================================
  */
 
-// Démarre (ou reprend) la session PHP pour lire $_SESSION.
 session_start();
-
-// Inclut config.php qui crée la variable $conn (connexion MySQL).
 require_once 'config.php';
 
-// GARDE DE SÉCURITÉ : redirige vers la page de connexion si non connecté.
+// GARDE DE SÉCURITÉ : redirige vers login si non connecté.
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
     exit();
 }
 
-// Variables de retour affichées à l'agent après une action.
-// $message → barre verte de succès.
-// $erreur  → barre rouge d'erreur.
 $message = "";
 $erreur  = "";
 
-// Nombre de lignes produit fixes dans le formulaire.
-// Modifiez cette constante pour ajouter ou supprimer des lignes.
-define('NB_ROWS', 5);
-
 /*
- * $stock_errors : tableau associatif [ index_ligne => message_erreur ]
- * pour les lignes qui ont échoué la vérification des stocks.
- *
+ * $stock_errors : [ index_ligne => message_erreur ]
+ * PHP remplit ce tableau pendant la validation.
+ * Le HTML l'utilise pour ajouter "row-error" sur les lignes concernées.
  * Exemple : [ 2 => "Stock insuffisant (disponible : 3)" ]
- *
- * PHP utilise ce tableau lors du re-rendu du formulaire pour
- * ajouter la classe CSS "row-error" aux lignes concernées.
  */
 $stock_errors = [];
 
 /*
- * ──────────────────────────────────────────────────────────────
- * MÉMOIRE DU FORMULAIRE
- * ──────────────────────────────────────────────────────────────
- * Ces variables conservent ce que l'agent a saisi.
- * À la première ouverture de la page, elles contiennent les
- * valeurs par défaut (formulaire vide).
- * Après un POST échoué, elles sont remplies avec les données
- * soumises pour que l'agent ne perde pas son travail.
+ * $form_rows : tableau de toutes les lignes à afficher dans le formulaire.
+ * Sur une nouvelle page : 1 ligne vide par défaut.
+ * Après un POST échoué : autant de lignes que soumises, pré-remplies avec
+ * ce que l'agent avait saisi — rien n'est perdu.
+ * Structure : [ ['id_produit' => X, 'quantite' => Y], ... ]
  */
-$form_client    = "";           // id_client soumis (vide = vente anonyme)
-$form_paiement  = "especes";    // mode_paiement soumis
+$form_rows = [
+    ['id_produit' => 0, 'quantite' => 1],
+];
 
-// Tableaux de NB_ROWS éléments — un par ligne produit.
-// array_fill(debut, nombre, valeur_initiale)
-$form_produits  = array_fill(0, NB_ROWS, 0); // ID produit sélectionné (0 = aucun)
-$form_quantites = array_fill(0, NB_ROWS, 1); // Quantité saisie (défaut : 1)
+// Variables pour ré-afficher les sélecteurs client/paiement après erreur.
+$form_client   = "";
+$form_paiement = "especes";
 
 /*
  * ══════════════════════════════════════════════════════════════
@@ -88,58 +75,38 @@ $form_quantites = array_fill(0, NB_ROWS, 1); // Quantité saisie (défaut : 1)
 if ($_SERVER['REQUEST_METHOD'] == 'POST' &&
     isset($_POST['action']) && $_POST['action'] == 'vendre') {
 
-    /*
-     * ── Étape 0 : Capturer les valeurs soumises ────────────────
-     * On enregistre ce que l'agent a tapé AVANT la validation,
-     * pour pouvoir ré-afficher le formulaire intact en cas d'erreur.
-     */
+    // ── Capturer les valeurs soumises AVANT la validation ─────────────────
+    // Ces valeurs servent à ré-afficher le formulaire intact en cas d'erreur.
     $form_client   = !empty($_POST['id_client']) ? (int) $_POST['id_client'] : "";
-    $form_paiement = mysqli_real_escape_string($conn, $_POST['mode_paiement']);
+    $form_paiement = mysqli_real_escape_string($conn, $_POST['mode_paiement'] ?? 'especes');
 
-    // Ré-alimenter les tableaux de lignes depuis le POST.
+    // Reconstituer $form_rows depuis les tableaux POST pour le ré-affichage.
+    // count($_POST['id_produit']) donne exactement le nombre de lignes soumises —
+    // qu'il y en ait 1, 3 ou 10.
+    $form_rows = [];
     if (isset($_POST['id_produit']) && is_array($_POST['id_produit'])) {
         foreach ($_POST['id_produit'] as $i => $v) {
-            if (array_key_exists($i, $form_produits)) {
-                $form_produits[$i] = (int) $v;
-            }
+            $form_rows[] = [
+                'id_produit' => (int) $v,
+                'quantite'   => isset($_POST['quantite'][$i]) ? (int) $_POST['quantite'][$i] : 1,
+            ];
         }
     }
-    if (isset($_POST['quantite']) && is_array($_POST['quantite'])) {
-        foreach ($_POST['quantite'] as $i => $v) {
-            if (array_key_exists($i, $form_quantites)) {
-                $form_quantites[$i] = (int) $v;
-            }
-        }
+    // Garantir au moins une ligne vide si rien n'a été soumis.
+    if (empty($form_rows)) {
+        $form_rows = [['id_produit' => 0, 'quantite' => 1]];
     }
 
-    /*
-     * ── Étape 1 : Préparer les variables de la vente ──────────
-     */
-    // ID de l'agent connecté — cast en entier pour sécuriser la requête SQL.
+    // ── Variables de la vente ────────────────────────────────────────────
     $id_utilisateur = (int) $_SESSION['user_id'];
-
-    // ID du client : entier ou chaîne "NULL" pour une vente anonyme.
-    // La chaîne "NULL" est insérée telle quelle dans le SQL et interprétée
-    // comme la valeur NULL de SQL (pas la chaîne "NULL").
-    $id_client = !empty($_POST['id_client'])
-        ? (int) $_POST['id_client']
-        : "NULL";
-
-    // mysqli_real_escape_string() échappe les caractères dangereux
-    // dans la chaîne pour éviter les injections SQL.
-    $mode_paiement = mysqli_real_escape_string($conn, $_POST['mode_paiement']);
-
-    // Contiendra les lignes qui ont passé TOUTES les validations.
+    $id_client      = !empty($_POST['id_client']) ? (int) $_POST['id_client'] : "NULL";
+    $mode_paiement  = mysqli_real_escape_string($conn, $_POST['mode_paiement'] ?? 'especes');
     $lignes_valides = [];
 
-    /*
-     * ── Étape 2 : Valider chaque ligne produit ─────────────────
-     * On parcourt toutes les lignes soumises. Au lieu de s'arrêter
-     * à la première erreur, on continue jusqu'au bout pour signaler
-     * TOUS les problèmes en une seule passe.
-     */
+    // ── Validation de chaque ligne produit ───────────────────────────────
+    // On vérifie TOUTES les lignes (pas seulement la première) pour signaler
+    // tous les problèmes en une seule passe.
     if (isset($_POST['id_produit']) && is_array($_POST['id_produit'])) {
-
         foreach ($_POST['id_produit'] as $index => $id_produit) {
 
             $id_produit = (int) $id_produit;
@@ -147,34 +114,29 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' &&
                 ? (int) $_POST['quantite'][$index]
                 : 0;
 
-            // Ignorer les lignes vides (aucun produit sélectionné ou quantité invalide).
+            // Ignorer les lignes vides (aucun produit sélectionné ou quantité nulle).
             if ($id_produit == 0 || $quantite <= 0) {
                 continue;
             }
 
-            /*
-             * Récupérer le prix et le stock DEPUIS LA BASE DE DONNÉES.
-             * On ne fait jamais confiance au navigateur pour le prix —
-             * n'importe qui peut modifier une valeur dans le navigateur.
-             * En relisant depuis la base, on est sûr d'avoir le bon prix.
-             */
+            // Lire le prix et le stock depuis la base de données.
+            // On ne fait JAMAIS confiance aux valeurs du navigateur pour le prix.
             $res     = mysqli_query($conn,
                 "SELECT designation, prix_unitaire, stock_actuel
                  FROM produit WHERE id_produit = $id_produit"
             );
             $produit = mysqli_fetch_assoc($res);
 
-            // ── VÉRIFICATION DU STOCK ──────────────────────────────
-            // Si la quantité demandée dépasse le stock disponible,
-            // on enregistre l'erreur et on passe à la ligne suivante
-            // (on ne s'arrête PAS — on vérifie toutes les lignes).
+            // ── VÉRIFICATION DU STOCK ─────────────────────────────────────
+            // Si quantité demandée > stock disponible → enregistrer l'erreur.
+            // On NE s'arrête PAS : on continue pour trouver TOUS les problèmes.
             if ($produit['stock_actuel'] < $quantite) {
                 $stock_errors[$index] =
-                    "Stock insuffisant (disponible&nbsp;: " . $produit['stock_actuel'] . ")";
+                    "Stock insuffisant (disponible\u{00A0}: " . $produit['stock_actuel'] . ")";
                 continue; // Passer à la ligne suivante
             }
 
-            // La ligne est valide — l'ajouter à la liste.
+            // Ligne valide — l'ajouter à la liste d'enregistrement.
             $lignes_valides[] = [
                 'id_produit'    => $id_produit,
                 'quantite'      => $quantite,
@@ -184,9 +146,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' &&
         }
     }
 
-    /*
-     * ── Étape 3 : Agir selon les résultats de validation ──────
-     */
+    // ── Décision selon les résultats ─────────────────────────────────────
+
     if (!empty($stock_errors)) {
         // Au moins une ligne dépasse le stock.
         // Le formulaire sera ré-affiché avec les lignes problématiques en rouge.
@@ -194,37 +155,29 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' &&
                 . "Veuillez corriger les lignes surlign&eacute;es en rouge.";
 
     } elseif (count($lignes_valides) === 0) {
-        // Toutes les lignes étaient vides — aucun produit sélectionné.
         $erreur = "Veuillez s&eacute;lectionner au moins un produit.";
 
     } else {
-        /*
-         * ── TOUTES LES LIGNES SONT VALIDES — ENREGISTRER LA VENTE ─
-         */
+        // TOUTES LES LIGNES SONT VALIDES — ENREGISTRER LA VENTE.
 
-        // ÉTAPE A : Calculer le montant total de la commande.
+        // ÉTAPE 1 : Calculer le montant total.
         $montant_total = 0;
         foreach ($lignes_valides as $ligne) {
             $montant_total += $ligne['prix_unitaire'] * $ligne['quantite'];
         }
 
-        // ÉTAPE B : Insérer l'en-tête de la vente dans la table "vente".
-        // L'id_vente est généré automatiquement par MySQL (AUTO_INCREMENT).
+        // ÉTAPE 2 : Insérer l'en-tête de la vente.
         $sql_vente =
             "INSERT INTO vente (montant_total, mode_paiement, id_client, id_utilisateur)
              VALUES ($montant_total, '$mode_paiement', $id_client, $id_utilisateur)";
 
         if (mysqli_query($conn, $sql_vente)) {
 
-            // mysqli_insert_id() renvoie l'ID de la ligne qu'on vient d'insérer.
-            // On en a besoin pour lier les lignes produit à cette vente.
             $id_vente = mysqli_insert_id($conn);
 
             foreach ($lignes_valides as $ligne) {
-
-                // ÉTAPE C : Insérer chaque ligne produit dans "ligne_vente".
-                // On stocke le prix_unitaire ici pour conserver l'historique :
-                // si le prix change demain, les anciennes factures restent justes.
+                // ÉTAPE 3 : Insérer chaque ligne produit.
+                // prix_unitaire est stocké ici pour conserver l'historique des prix.
                 mysqli_query($conn,
                     "INSERT INTO ligne_vente
                          (quantite, prix_unitaire, id_vente, id_produit)
@@ -233,7 +186,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' &&
                           $id_vente, {$ligne['id_produit']})"
                 );
 
-                // ÉTAPE D : Déduire la quantité vendue du stock du produit.
+                // ÉTAPE 4 : Déduire la quantité vendue du stock.
                 mysqli_query($conn,
                     "UPDATE produit
                      SET stock_actuel = stock_actuel - {$ligne['quantite']}
@@ -241,9 +194,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' &&
                 );
             }
 
-            // ÉTAPE E : Attribuer des points de fidélité au client.
-            // Règle : 1 point par unité monétaire dépensée.
-            // On ne fait rien pour les ventes anonymes ($id_client = "NULL").
+            // ÉTAPE 5 : Points de fidélité (1 point par unité monétaire).
+            // Ignoré pour les ventes anonymes.
             if ($id_client != "NULL") {
                 $points = (int) $montant_total;
                 mysqli_query($conn,
@@ -253,11 +205,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' &&
                 );
             }
 
-            // Vente enregistrée : réinitialiser le formulaire à vide.
-            $form_client    = "";
-            $form_paiement  = "especes";
-            $form_produits  = array_fill(0, NB_ROWS, 0);
-            $form_quantites = array_fill(0, NB_ROWS, 1);
+            // Vente enregistrée : réinitialiser le formulaire.
+            $form_rows     = [['id_produit' => 0, 'quantite' => 1]];
+            $form_client   = "";
+            $form_paiement = "especes";
 
             $message = "Vente #$id_vente enregistr&eacute;e&nbsp;! Total&nbsp;: $"
                      . number_format($montant_total, 2);
@@ -270,16 +221,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' &&
 
 /*
  * ══════════════════════════════════════════════════════════════
- * CHARGER LES DONNÉES POUR LES MENUS DÉROULANTS
+ * DONNÉES POUR LES MENUS DÉROULANTS ET LE JAVASCRIPT
  * ══════════════════════════════════════════════════════════════
  */
 
-// Tous les clients par ordre alphabétique pour le sélecteur.
+// Tous les clients par ordre alphabétique.
 $clients = mysqli_query($conn,
     "SELECT id_client, nom, prenom FROM client ORDER BY nom"
 );
 
-// Tous les produits avec leur stock — pour les listes déroulantes de chaque ligne.
+// Tous les produits avec prix et stock.
+// Le tableau PHP est utilisé pour les <option> ET pour les objets JS PRICES/STOCKS.
 $produits_res   = mysqli_query($conn,
     "SELECT id_produit, designation, prix_unitaire, stock_actuel
      FROM produit ORDER BY designation"
@@ -289,7 +241,33 @@ while ($p = mysqli_fetch_assoc($produits_res)) {
     $produits_array[] = $p;
 }
 
-// 20 dernières ventes pour le tableau en bas de page.
+/*
+ * Construire deux objets JSON pour JavaScript :
+ *   PRICES  — id_produit → prix unitaire  (pour le total en temps réel)
+ *   STOCKS  — id_produit → stock actuel   (plus utilisé pour bloquer le submit,
+ *             conservé pour la cohérence des data-attributes dans le HTML)
+ *
+ * json_encode() convertit les tableaux PHP en syntaxe JSON valide pour JS.
+ */
+$prix_json   = [];
+$stocks_json = [];
+foreach ($produits_array as $p) {
+    $prix_json[$p['id_produit']]   = (float) $p['prix_unitaire'];
+    $stocks_json[$p['id_produit']] = (int)   $p['stock_actuel'];
+}
+$prix_js   = json_encode($prix_json);
+$stocks_js = json_encode($stocks_json);
+
+/*
+ * $stock_errors_js : tableau JSON des indices de lignes en erreur.
+ * JavaScript l'utilise AU CHARGEMENT pour re-surligner les lignes
+ * que PHP a marquées comme problématiques.
+ * Exemple : [1, 3]  →  lignes 2 et 4 (indices 0-based) sont en rouge.
+ * Sur une nouvelle page ou après un succès : "[]"
+ */
+$stock_errors_js = json_encode(array_keys($stock_errors));
+
+// 20 dernières ventes.
 $ventes = mysqli_query($conn,
     "SELECT v.id_vente, v.date_vente, v.montant_total, v.mode_paiement,
             CONCAT(c.prenom, ' ', c.nom) AS client_nom,
@@ -301,7 +279,7 @@ $ventes = mysqli_query($conn,
      LIMIT 20"
 );
 
-// Vue détail d'une vente : déclenchée par ?voir=ID dans l'URL.
+// Vue détail (?voir=ID).
 $detail_vente  = null;
 $detail_lignes = null;
 if (isset($_GET['voir'])) {
@@ -335,11 +313,9 @@ if (isset($_GET['voir'])) {
     <style>
         /* ============================================================
            STYLES PROPRES À LA PAGE VENTES
-           Ces règles complètent style.css pour les éléments
-           spécifiques au formulaire de vente.
            ============================================================ */
 
-        /* ── Ligne produit (conteneur d'une ligne du formulaire) ── */
+        /* ── Ligne produit ────────────────────────────────────────── */
         .product-row {
             display: flex;
             align-items: center;
@@ -349,41 +325,29 @@ if (isset($_GET['voir'])) {
             background: #111;
             border: 1px solid #2A2A2A;
             border-radius: 4px;
-            /* Transition douce pour que la bordure rouge apparaisse
-               progressivement quand PHP ajoute la classe row-error. */
             transition: border-color 0.25s, box-shadow 0.25s;
-            position: relative; /* Nécessaire pour positionner le message d'erreur */
+            position: relative;
         }
 
-        /* Bordure dorée quand un champ de la ligne reçoit le focus clavier. */
         .product-row:focus-within {
             border-color: #D4AF37;
         }
 
         /* ── ÉTAT ERREUR DE STOCK ─────────────────────────────────
-         * Ajouté par PHP (pas par JavaScript) quand une ligne
-         * dépasse le stock disponible.
-         * La bordure rouge et l'animation attirent l'œil de l'agent
-         * exactement sur la ligne à corriger — les autres restent intactes.
-         *
-         * !important est nécessaire ici pour surpasser la règle
-         * :focus-within définie juste au-dessus.
+         * Classe ajoutée par PHP (dans la boucle de rendu) sur les
+         * lignes qui ont dépassé le stock disponible.
+         * Le halo rouge et l'animation attirent l'œil de l'agent
+         * exactement sur la ligne à corriger.
          */
         .product-row.row-error {
-            border-color: #EF4444 !important; /* Bordure rouge vif */
-            /* box-shadow crée l'effet de "halo" lumineux :
-               - Premier ombre : anneau rouge serré (3px de diffusion)
-               - Deuxième ombre : halo plus large et doux (12px)
-               L'animation fait pulser les deux intensités en alternance. */
+            border-color: #EF4444 !important;
             box-shadow:
                 0 0 0 3px rgba(239, 68, 68, 0.20),
                 0 0 12px rgba(239, 68, 68, 0.15);
             animation: pulse-red 1.6s ease-in-out infinite;
-            background: #1A0808; /* Fond légèrement teinté de rouge */
-            padding-bottom: 28px; /* Espace pour le message d'erreur en dessous */
+            background: #1A0808;
         }
 
-        /* Animation CSS : le halo rouge pulse entre deux niveaux d'intensité. */
         @keyframes pulse-red {
             0%, 100% {
                 box-shadow:
@@ -391,26 +355,30 @@ if (isset($_GET['voir'])) {
                     0 0 12px rgba(239, 68, 68, 0.12);
             }
             50% {
-                /* Le halo devient plus intense au milieu de chaque cycle. */
                 box-shadow:
                     0 0 0 4px rgba(239, 68, 68, 0.38),
                     0 0 22px rgba(239, 68, 68, 0.28);
             }
         }
 
-        /* Message d'erreur affiché à l'intérieur de la ligne en rouge.
-           Rendu par PHP avec le message exact (ex. "Stock insuffisant (disponible : 3)"). */
+        /* Message d'erreur positionné en bas de la ligne en erreur.
+           Rendu par PHP avec le stock disponible exact. */
         .stock-error-msg {
-            position: absolute; /* Positionné par rapport à .product-row */
-            bottom: 5px;        /* Près du bord inférieur de la ligne */
-            left: 50px;         /* Décalé après le numéro de ligne */
+            position: absolute;
+            bottom: 4px;
+            left: 50px;
             font-size: 0.7rem;
             font-weight: 700;
-            color: #F87171;     /* Rouge clair assorti à la bordure */
+            color: #F87171;
             letter-spacing: 0.3px;
         }
 
-        /* ── Numéro de ligne (ex. "1", "2"…) ─────────────────── */
+        /* Ajouter de l'espace en bas quand un message d'erreur est présent. */
+        .product-row.row-error {
+            padding-bottom: 26px;
+        }
+
+        /* ── Numéro de ligne ──────────────────────────────────────── */
         .row-number {
             color: #555;
             font-size: 0.8rem;
@@ -419,7 +387,7 @@ if (isset($_GET['voir'])) {
             text-align: center;
         }
 
-        /* ── Menu déroulant produit ───────────────────────────── */
+        /* ── Menu déroulant produit ───────────────────────────────── */
         .product-row select {
             flex: 2;
             padding: 9px 12px;
@@ -431,10 +399,25 @@ if (isset($_GET['voir'])) {
             outline: none;
             transition: border-color 0.15s;
         }
-        .product-row select:focus  { border-color: #D4AF37; }
-        .product-row select option { background: #171717; color: #E0E0E0; }
+        .product-row select:focus    { border-color: #D4AF37; }
+        .product-row select option   { background: #171717; color: #E0E0E0; }
 
-        /* ── Champ quantité ───────────────────────────────────── */
+        /* ── Affichage du prix unitaire (lecture seule, rempli par JS) ── */
+        .unit-price-box {
+            flex: 1;
+            padding: 9px 12px;
+            background: #0D0D0D;
+            border: 1px solid #333;
+            border-radius: 3px;
+            color: #D4AF37;
+            font-size: 0.88rem;
+            font-weight: 700;
+            text-align: right;
+            min-width: 90px;
+            letter-spacing: 0.5px;
+        }
+
+        /* ── Champ quantité ───────────────────────────────────────── */
         .product-row input[type="number"] {
             flex: 0 0 80px;
             padding: 9px 10px;
@@ -449,25 +432,70 @@ if (isset($_GET['voir'])) {
         }
         .product-row input[type="number"]:focus { border-color: #D4AF37; }
 
-        /* ── En-têtes de colonnes au-dessus des lignes ───────── */
-        .product-row-headers {
-            display: flex;
-            gap: 12px;
-            padding: 0 16px;
-            margin-bottom: 6px;
+        /* ── Bouton poubelle (supprimer une ligne) ────────────────── */
+        .btn-remove-row {
+            flex: 0 0 auto;
+            background: transparent;
+            border: 1px solid #3A1010;
+            color: #F87171;
+            border-radius: 3px;
+            padding: 8px 10px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.15s;
+            line-height: 1;
         }
-        .product-row-headers span {
-            font-size: 0.65rem;
-            font-weight: 700;
-            color: #555;
+        .btn-remove-row:hover    { background: #1A0808; color: #FCA5A5; }
+        .btn-remove-row:disabled { opacity: 0.25; cursor: not-allowed; }
+
+        /* ── Bouton "Ajouter un produit" (tirets) ─────────────────── */
+        .btn-add-row {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 9px 18px;
+            background: transparent;
+            border: 1px dashed #444;
+            color: #888;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 0.82rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
             text-transform: uppercase;
-            letter-spacing: 1px;
+            transition: all 0.15s;
+            margin-top: 4px;
+        }
+        .btn-add-row:hover {
+            border-color: #D4AF37;
+            color: #D4AF37;
+            background: #111;
         }
 
-        /* ── Barre d'action (bouton Enregistrer) ─────────────── */
+        /* ── Boîte du total estimé ─────────────────────────────────── */
+        .total-box {
+            margin-top: 16px;
+            padding: 16px 20px;
+            background: #111;
+            border: 1px solid #2A2A2A;
+            border-left: 3px solid #D4AF37;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .total-label     { font-size: 0.75rem; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 1.5px; }
+        .total-amount    { font-size: 1.5rem;  font-weight: 800; color: #D4AF37; letter-spacing: 1px; }
+        .total-breakdown { font-size: 0.75rem; color: #555; text-align: right; }
+
+        /* ── En-têtes de colonnes au-dessus des lignes ────────────── */
+        .product-row-headers { display: flex; gap: 12px; padding: 0 16px; margin-bottom: 6px; }
+        .product-row-headers span { font-size: 0.65rem; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 1px; }
+
+        /* ── Barre d'action (bouton Enregistrer) ──────────────────── */
         .form-actions {
             display: flex;
-            justify-content: flex-end; /* Bouton aligné à droite */
+            justify-content: flex-end;
             margin-top: 20px;
             padding-top: 16px;
             border-top: 1px solid #1E1E1E;
@@ -511,12 +539,12 @@ if (isset($_GET['voir'])) {
             </div>
         </div>
 
-        <!-- Message de succès (vert) — affiché après une vente enregistrée -->
+        <!-- Message de succès (vert) -->
         <?php if ($message != ""): ?>
             <div class="alert-msg success"><?php echo $message; ?></div>
         <?php endif; ?>
 
-        <!-- Message d'erreur (rouge) — affiché si la validation échoue -->
+        <!-- Message d'erreur (rouge) -->
         <?php if ($erreur != ""): ?>
             <div class="alert-msg danger"><?php echo $erreur; ?></div>
         <?php endif; ?>
@@ -538,7 +566,6 @@ if (isset($_GET['voir'])) {
                 </div>
             </div>
             <div style="padding:24px;">
-                <!-- Grille d'informations sur la vente (4 colonnes) -->
                 <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:16px; margin-bottom:24px;">
                     <div>
                         <p style="color:#888; font-size:0.8rem;">CLIENT</p>
@@ -559,19 +586,15 @@ if (isset($_GET['voir'])) {
                     <div>
                         <p style="color:#888; font-size:0.8rem;">DATE</p>
                         <p style="font-weight:600;">
-                            <?php echo date('d/m/Y \&agrave; H:i', strtotime($detail_vente['date_vente'])); ?>
+                            <?php echo date('d/m/Y \à H:i', strtotime($detail_vente['date_vente'])); ?>
                         </p>
                     </div>
                 </div>
-
-                <!-- Tableau des lignes produit de cette vente -->
                 <table>
                     <thead>
                         <tr>
-                            <th>Produit</th>
-                            <th>Prix unitaire</th>
-                            <th>Quantit&eacute;</th>
-                            <th>Sous-total</th>
+                            <th>Produit</th><th>Prix unitaire</th>
+                            <th>Quantit&eacute;</th><th>Sous-total</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -583,13 +606,9 @@ if (isset($_GET['voir'])) {
                             <td><strong>$<?php echo number_format($l['sous_total'], 2); ?></strong></td>
                         </tr>
                     <?php endwhile; ?>
-                    <!-- Ligne de total en bas du tableau -->
                     <tr style="background:#111;">
-                        <td colspan="3"
-                            style="text-align:right; font-weight:700; padding:14px 24px; color:#F0F0F0;">
-                            TOTAL
-                        </td>
-                        <td style="font-weight:700; font-size:1.1rem; color:#D4AF37;">
+                        <td colspan="3" style="text-align:right;font-weight:700;padding:14px 24px;color:#F0F0F0;">TOTAL</td>
+                        <td style="font-weight:700;font-size:1.1rem;color:#D4AF37;">
                             $<?php echo number_format($detail_vente['montant_total'], 2); ?>
                         </td>
                     </tr>
@@ -609,35 +628,17 @@ if (isset($_GET['voir'])) {
             </div>
             <div style="padding:24px;">
 
-                <!--
-                    Formulaire de saisie d'une vente.
-                    method="POST" : les données sont envoyées au serveur PHP.
-                    action="ventes.php" : la même page reçoit et traite le formulaire.
-
-                    COMMENT FONCTIONNE LE TRAITEMENT PHP :
-                    1. L'agent remplit le formulaire et clique "Enregistrer".
-                    2. Le navigateur envoie une requête POST à ventes.php.
-                    3. PHP lit $_POST, valide les stocks, et soit :
-                       a. Enregistre la vente → page rechargée avec message de succès
-                       b. Trouve des erreurs  → page rechargée avec le formulaire
-                          ré-rempli ET les lignes problématiques en rouge
-                -->
-                <form method="POST" action="ventes.php">
+                <form method="POST" action="ventes.php" id="sale-form">
                     <input type="hidden" name="action" value="vendre">
 
-                    <!-- ── Sélecteur client + mode de paiement ── -->
+                    <!-- Client + mode de paiement -->
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px;">
-
                         <div class="form-group">
                             <label>Client (optionnel &ndash; anonyme si vide)</label>
                             <select name="id_client">
                                 <option value="">-- Vente anonyme --</option>
                                 <?php while ($c = mysqli_fetch_assoc($clients)): ?>
-                                    <!--
-                                        selected="selected" est ajouté par PHP sur l'option
-                                        qui correspond à ce que l'agent avait choisi.
-                                        Ainsi, après un POST échoué, le client reste sélectionné.
-                                    -->
+                                    <!-- PHP ré-sélectionne le client choisi après un POST échoué -->
                                     <option value="<?php echo $c['id_client']; ?>"
                                         <?php echo ($form_client == $c['id_client']) ? 'selected="selected"' : ''; ?>>
                                         <?php echo htmlspecialchars($c['prenom'] . ' ' . $c['nom']); ?>
@@ -645,139 +646,154 @@ if (isset($_GET['voir'])) {
                                 <?php endwhile; ?>
                             </select>
                         </div>
-
                         <div class="form-group">
                             <label>Mode de paiement *</label>
                             <select name="mode_paiement">
-                                <!--
-                                    Pour chaque option, PHP compare $form_paiement à la valeur
-                                    de l'option. Si c'est la même, il ajoute selected="selected"
-                                    pour ré-sélectionner le mode de paiement après un POST échoué.
-                                -->
-                                <option value="especes"
-                                    <?php echo ($form_paiement == 'especes')  ? 'selected="selected"' : ''; ?>>
-                                    &#x1F4B5; Esp&egrave;ces
-                                </option>
-                                <option value="carte"
-                                    <?php echo ($form_paiement == 'carte')    ? 'selected="selected"' : ''; ?>>
-                                    &#x1F4B3; Carte
-                                </option>
-                                <option value="virement"
-                                    <?php echo ($form_paiement == 'virement') ? 'selected="selected"' : ''; ?>>
-                                    &#x1F3E6; Virement
-                                </option>
+                                <option value="especes"  <?php echo ($form_paiement == 'especes')  ? 'selected="selected"' : ''; ?>>&#x1F4B5; Esp&egrave;ces</option>
+                                <option value="carte"    <?php echo ($form_paiement == 'carte')    ? 'selected="selected"' : ''; ?>>&#x1F4B3; Carte</option>
+                                <option value="virement" <?php echo ($form_paiement == 'virement') ? 'selected="selected"' : ''; ?>>&#x1F3E6; Virement</option>
                             </select>
                         </div>
                     </div>
 
-                    <p style="font-size:0.75rem; font-weight:700; color:#888;
-                              text-transform:uppercase; letter-spacing:1px; margin-bottom:12px;">
+                    <p style="font-size:0.75rem;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;">
                         Produits vendus
                     </p>
 
-                    <!-- En-têtes de colonnes au-dessus des lignes produit -->
+                    <!-- En-têtes de colonnes -->
                     <div class="product-row-headers">
                         <span style="min-width:20px;">#</span>
                         <span style="flex:2;">Produit</span>
-                        <span style="flex:0 0 80px; text-align:center;">Qt&eacute;</span>
+                        <span style="flex:1;min-width:90px;text-align:right;">Prix unitaire</span>
+                        <span style="flex:0 0 80px;text-align:center;">Qt&eacute;</span>
+                        <span style="flex:0 0 auto;min-width:38px;"></span>
                     </div>
 
                     <!--
                         ══════════════════════════════════════════════════════
-                        LIGNES PRODUIT FIXES — rendues par une boucle PHP
+                        LIGNES PRODUIT — rendues par PHP via une boucle
 
-                        Pourquoi une boucle PHP plutôt que du JavaScript ?
-                        PHP tourne sur le SERVEUR et génère le HTML avant
-                        que le navigateur ne reçoive la page.
-                        PHP peut donc :
-                          - Appliquer la classe "row-error" sur les lignes qui
-                            ont échoué la validation (tableau $stock_errors)
-                          - Ré-sélectionner le produit choisi (tableau $form_produits)
-                          - Ré-remplir la quantité saisie (tableau $form_quantites)
+                        Pourquoi PHP rend ces lignes (et pas uniquement JS) ?
+                        Quand la validation échoue, PHP recharge la page.
+                        Sans cette boucle PHP, les lignes seraient vides au
+                        rechargement — l'agent perdrait tout ce qu'il avait saisi.
+                        Avec cette boucle, PHP restitue exactement ce qui avait
+                        été soumis : même nombre de lignes, mêmes produits,
+                        mêmes quantités.
 
-                        La variable NB_ROWS contrôle le nombre de lignes.
+                        Sur une nouvelle page : $form_rows contient 1 ligne vide.
+                        Après un POST échoué : $form_rows contient toutes les
+                        lignes soumises, avec leurs valeurs conservées.
+
+                        Le JavaScript peut ensuite ajouter/supprimer des lignes
+                        normalement via les boutons + et poubelle.
                         ══════════════════════════════════════════════════════
                     -->
-                    <?php for ($i = 0; $i < NB_ROWS; $i++): ?>
+                    <div id="product-lines">
+                    <?php foreach ($form_rows as $i => $row): ?>
 
                         <!--
-                            array_key_exists($i, $stock_errors) vérifie si cette ligne ($i)
-                            est dans le tableau des erreurs renvoyé par PHP.
-                            Si oui, on ajoute la classe CSS "row-error" qui déclenche
-                            le halo rouge et l'animation de pulsation (définis dans le <style>).
-                            Sinon, on n'ajoute rien et la ligne reste normale.
+                            array_key_exists($i, $stock_errors) vérifie si cette ligne
+                            est dans la liste des erreurs de stock.
+                            Si oui, PHP ajoute la classe "row-error" → halo rouge CSS.
+                            Si non, la ligne s'affiche normalement.
                         -->
-                        <div class="product-row <?php echo array_key_exists($i, $stock_errors) ? 'row-error' : ''; ?>">
+                        <div class="product-row <?php echo array_key_exists($i, $stock_errors) ? 'row-error' : ''; ?>"
+                             data-index="<?php echo $i; ?>">
 
-                            <!-- Numéro de ligne affiché à gauche (commence à 1) -->
+                            <!-- Numéro de ligne (mis à jour par JS sur add/remove) -->
                             <span class="row-number"><?php echo $i + 1; ?></span>
 
                             <!--
-                                Menu déroulant des produits pour cette ligne.
-                                name="id_produit[]" : les crochets [] indiquent à PHP
-                                que c'est un tableau — $_POST['id_produit'] sera un
-                                tableau avec une valeur par ligne.
-
-                                PHP compare chaque option à $form_produits[$i]
-                                pour ré-sélectionner le produit soumis après un POST échoué.
+                                Menu déroulant des produits.
+                                data-price et data-stock sont lus par JS pour le total
+                                en temps réel et l'affichage du prix unitaire.
+                                PHP ré-sélectionne le produit soumis via "selected".
                             -->
-                            <select name="id_produit[]" style="flex:2;">
+                            <select name="id_produit[]" style="flex:2;"
+                                    onchange="updateRow(this)">
                                 <option value="0">-- S&eacute;lectionner un produit --</option>
                                 <?php foreach ($produits_array as $p): ?>
                                     <option value="<?php echo $p['id_produit']; ?>"
-                                        <?php
-                                        // Ré-sélectionner ce produit si c'est celui que l'agent
-                                        // avait choisi avant le rechargement de la page.
-                                        echo ($form_produits[$i] == $p['id_produit'])
-                                            ? 'selected="selected"'
-                                            : '';
-                                        ?>
-                                        <?php
-                                        // Désactiver les produits en rupture de stock.
-                                        // L'agent ne peut pas les sélectionner du tout.
-                                        echo ($p['stock_actuel'] == 0) ? 'disabled' : '';
-                                        ?>>
+                                            data-price="<?php echo $p['prix_unitaire']; ?>"
+                                            data-stock="<?php echo $p['stock_actuel']; ?>"
+                                            <?php echo ($row['id_produit'] == $p['id_produit']) ? 'selected="selected"' : ''; ?>
+                                            <?php echo ($p['stock_actuel'] == 0) ? 'disabled' : ''; ?>>
                                         <?php echo htmlspecialchars($p['designation']); ?>
-                                        <?php
-                                        // Ajouter "(rupture)" dans le libellé pour les produits
-                                        // épuisés, même s'ils sont désactivés, pour l'information.
-                                        echo ($p['stock_actuel'] == 0) ? ' (rupture)' : '';
-                                        ?>
+                                        <?php echo ($p['stock_actuel'] == 0) ? ' (rupture)' : ''; ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>
 
-                            <!--
-                                Champ quantité pour cette ligne.
-                                name="quantite[]" : tableau côté PHP, comme id_produit[].
-                                value="..." : PHP ré-injecte la quantité soumise pour
-                                conserver ce que l'agent avait saisi.
-                                min="1" : le navigateur empêche de saisir 0 ou un nombre négatif.
-                            -->
-                            <input type="number"
-                                   name="quantite[]"
-                                   value="<?php echo $form_quantites[$i]; ?>"
-                                   min="1"
-                                   style="flex:0 0 80px;">
+                            <!-- Boîte prix unitaire — remplie par JS via updateRow() -->
+                            <div class="unit-price-box" id="price-display-<?php echo $i; ?>">
+                                <?php
+                                // Si un produit est déjà sélectionné (après un POST échoué),
+                                // PHP affiche son prix directement — JS le mettra à jour aussi.
+                                if ($row['id_produit'] > 0) {
+                                    foreach ($produits_array as $p) {
+                                        if ($p['id_produit'] == $row['id_produit']) {
+                                            echo '$' . number_format($p['prix_unitaire'], 2);
+                                            break;
+                                        }
+                                    }
+                                } else {
+                                    echo '&mdash;';
+                                }
+                                ?>
+                            </div>
 
                             <!--
-                                MESSAGE D'ERREUR DE STOCK (rendu par PHP)
-                                Affiché uniquement si cette ligne ($i) est dans $stock_errors.
-                                La classe "stock-error-msg" positionne le texte rouge
-                                en bas de la ligne (définie dans le <style>).
+                                Champ quantité.
+                                PHP ré-injecte la valeur soumise après un POST échoué.
+                            -->
+                            <input type="number" name="quantite[]"
+                                   value="<?php echo $row['quantite']; ?>"
+                                   min="1" style="flex:0 0 80px;"
+                                   oninput="onQuantityChange(this)">
+
+                            <!--
+                                Bouton poubelle.
+                                Désactivé sur la première ligne si c'est la seule
+                                (renumberRows() gère aussi ça dynamiquement).
+                            -->
+                            <button type="button" class="btn-remove-row"
+                                    onclick="removeRow(this)"
+                                    <?php echo (count($form_rows) == 1) ? 'disabled title="Vous devez garder au moins une ligne"' : ''; ?>>
+                                &#x1F5D1;&#xFE0F;
+                            </button>
+
+                            <!--
+                                MESSAGE D'ERREUR DE STOCK — rendu par PHP
+                                Visible uniquement si cette ligne est dans $stock_errors.
+                                Positionné en bas de la ligne via CSS (.stock-error-msg).
                             -->
                             <?php if (array_key_exists($i, $stock_errors)): ?>
                                 <span class="stock-error-msg">
-                                    &#x26A0; <?php echo $stock_errors[$i]; ?>
+                                    &#x26A0; <?php echo htmlspecialchars($stock_errors[$i]); ?>
                                 </span>
                             <?php endif; ?>
 
                         </div>
 
-                    <?php endfor; ?>
-                    <!-- Fin de la boucle des lignes produit -->
+                    <?php endforeach; ?>
+                    </div>
+                    <!-- Fin des lignes produit -->
 
-                    <!-- Bouton d'envoi du formulaire — aligné à droite -->
+                    <!-- Bouton pour ajouter une ligne produit -->
+                    <button type="button" class="btn-add-row" onclick="addRow()">
+                        &#xFF0B; Ajouter un produit
+                    </button>
+
+                    <!-- Total estimé en temps réel (mis à jour par JS) -->
+                    <div class="total-box">
+                        <div>
+                            <div class="total-label">Total estim&eacute;</div>
+                            <div class="total-breakdown" id="total-items">0 article</div>
+                        </div>
+                        <div class="total-amount" id="total-amount">$0.00</div>
+                    </div>
+
                     <div class="form-actions">
                         <button type="submit" class="btn btn-primary"
                                 style="padding:10px 28px; font-size:0.85rem;">
@@ -791,12 +807,8 @@ if (isset($_GET['voir'])) {
 
         <!-- ── TABLEAU DES VENTES RÉCENTES ── -->
         <div class="card">
-            <div class="card-header">
-                <h3>&#x1F4CB; Ventes r&eacute;centes</h3>
-            </div>
-
+            <div class="card-header"><h3>&#x1F4CB; Ventes r&eacute;centes</h3></div>
             <?php if (mysqli_num_rows($ventes) == 0): ?>
-                <!-- État vide : aucune vente enregistrée -->
                 <div class="empty-state">
                     <div class="empty-icon">&#x1F6D2;</div>
                     <p>Aucune vente enregistr&eacute;e pour l'instant.</p>
@@ -805,13 +817,8 @@ if (isset($_GET['voir'])) {
             <table>
                 <thead>
                     <tr>
-                        <th>#</th>
-                        <th>Client</th>
-                        <th>Agent</th>
-                        <th>Paiement</th>
-                        <th>Total</th>
-                        <th>Date</th>
-                        <th>Actions</th>
+                        <th>#</th><th>Client</th><th>Agent</th>
+                        <th>Paiement</th><th>Total</th><th>Date</th><th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -819,29 +826,20 @@ if (isset($_GET['voir'])) {
                     <tr>
                         <td>#<?php echo $v['id_vente']; ?></td>
                         <td>
-                            <?php
-                            // Si le client_nom est NULL (vente anonyme), afficher un badge.
-                            // htmlspecialchars() empêche l'injection HTML dans le nom.
-                            echo $v['client_nom']
+                            <?php echo $v['client_nom']
                                 ? htmlspecialchars($v['client_nom'])
-                                : '<span class="badge badge-info">Anonyme</span>';
-                            ?>
+                                : '<span class="badge badge-info">Anonyme</span>'; ?>
                         </td>
                         <td><?php echo htmlspecialchars($v['agent_nom']); ?></td>
                         <td><?php echo ucfirst($v['mode_paiement']); ?></td>
                         <td><strong>$<?php echo number_format($v['montant_total'], 2); ?></strong></td>
                         <td><?php echo date('d/m/Y H:i', strtotime($v['date_vente'])); ?></td>
                         <td style="display:flex; gap:6px;">
-                            <!-- Lien vers la vue détail de cette vente -->
                             <a href="ventes.php?voir=<?php echo $v['id_vente']; ?>"
-                               class="btn btn-secondary">
-                                &#x1F50D; Voir
-                            </a>
-                            <!-- Lien vers la génération de facture PDF -->
+                               class="btn btn-secondary">&#x1F50D; Voir</a>
                             <a href="facture.php?id=<?php echo $v['id_vente']; ?>"
                                class="btn btn-primary"
-                               style="background:#C9A227; color:#1A1A1A; font-weight:700;
-                                      border:none; font-size:0.8rem;">
+                               style="background:#C9A227;color:#1A1A1A;font-weight:700;border:none;font-size:0.8rem;">
                                 &#x2B07;&#xFE0F; PDF
                             </a>
                         </td>
@@ -851,15 +849,256 @@ if (isset($_GET['voir'])) {
             </table>
             <?php endif; ?>
         </div>
-
         <?php endif; ?>
-        <!-- Fin de la condition detail_vente / formulaire -->
 
     </main>
 </div>
 
-<!-- Aucun JavaScript dans ce fichier. -->
-<!-- Toute la logique est gérée côté serveur par PHP. -->
+<script>
+    // ================================================================
+    // DONNÉES PHP → JAVASCRIPT
+    // ================================================================
+    // PHP a déjà quitté quand le navigateur lit ce script.
+    // Les <?php echo ... ?> ci-dessous ont été remplacés par PHP avant
+    // l'envoi de la page — le navigateur reçoit directement les valeurs.
 
+    // PRICES : id_produit → prix unitaire.  Exemple : { "1": 13.49, "3": 0.99 }
+    // Utilisé par recalculateTotal() pour calculer le total en temps réel.
+    const PRICES = <?php echo $prix_js; ?>;
+
+    // STOCKS : id_produit → stock actuel.  Exemple : { "1": 12, "3": 45 }
+    // Conservé pour les attributs data-stock des <option> (cohérence).
+    const STOCKS = <?php echo $stocks_js; ?>;
+
+    /*
+     * SERVER_ERRORS : indices (0-based) des lignes que PHP a marquées en erreur.
+     * Exemple : [1, 3]  →  lignes 2 et 4 sont en rouge.
+     * Sur une page neuve ou après un succès : []
+     *
+     * Note : PHP ajoute déjà la classe "row-error" directement dans le HTML
+     * lors du rendu des lignes. Ce tableau sert à faire défiler la page
+     * jusqu'à la première ligne en erreur au chargement.
+     */
+    const SERVER_ERRORS = <?php echo $stock_errors_js; ?>;
+
+
+    // ================================================================
+    // AVERTISSEMENT MODIFICATIONS NON SAUVEGARDÉES
+    // ================================================================
+    // formDirty passe à true dès que l'agent touche le formulaire.
+    // Le navigateur affiche un avertissement si l'agent quitte la page
+    // avant d'avoir enregistré.
+    let formDirty = false;
+
+    const saleForm = document.getElementById('sale-form');
+    if (saleForm) {
+        saleForm.addEventListener('input',  () => { formDirty = true; });
+        saleForm.addEventListener('change', () => { formDirty = true; });
+
+        // Quand le formulaire est soumis (bouton Enregistrer), on remet
+        // formDirty à false pour ne pas afficher l'avertissement après redirection.
+        saleForm.addEventListener('submit', () => { formDirty = false; });
+    }
+
+    window.addEventListener('beforeunload', function(e) {
+        if (formDirty) {
+            e.preventDefault();
+            e.returnValue = '';
+        }
+    });
+
+
+    // ================================================================
+    // AFFICHAGE DU PRIX UNITAIRE
+    // ================================================================
+
+    /*
+     * updateRow(selectElement)
+     * Appelé par onchange="updateRow(this)" sur chaque <select> produit.
+     * Quand l'agent choisit un produit, affiche son prix dans la boîte
+     * dorée à droite du menu déroulant.
+     * Recalcule aussi le total en bas.
+     */
+    function updateRow(selectElement) {
+        const row       = selectElement.closest('.product-row');
+        const productId = selectElement.value;
+        const priceBox  = row.querySelector('.unit-price-box');
+
+        if (productId && productId !== '0' && PRICES[productId] !== undefined) {
+            priceBox.textContent = '$' + parseFloat(PRICES[productId]).toFixed(2);
+        } else {
+            priceBox.textContent = '—'; // tiret cadratin
+        }
+
+        recalculateTotal();
+    }
+
+    /*
+     * onQuantityChange(inputElement)
+     * Appelé par oninput="onQuantityChange(this)" sur chaque champ quantité.
+     * Recalcule le total à chaque frappe.
+     */
+    function onQuantityChange(inputElement) {
+        recalculateTotal();
+    }
+
+
+    // ================================================================
+    // CALCUL DU TOTAL EN TEMPS RÉEL
+    // ================================================================
+
+    /*
+     * recalculateTotal()
+     * Parcourt toutes les lignes, lit produit + quantité, multiplie
+     * par le prix (depuis PRICES), et met à jour l'affichage.
+     */
+    function recalculateTotal() {
+        const rows = document.querySelectorAll('.product-row');
+        let total = 0;
+        let items = 0;
+
+        rows.forEach(function(row) {
+            const select    = row.querySelector('select');
+            const qtyInput  = row.querySelector('input[type="number"]');
+            const productId = select ? select.value : '0';
+            const quantity  = qtyInput ? (parseInt(qtyInput.value) || 0) : 0;
+            const price     = (productId && PRICES[productId])
+                ? parseFloat(PRICES[productId])
+                : 0;
+
+            total += price * quantity;
+            items += quantity;
+        });
+
+        document.getElementById('total-amount').textContent = '$' + total.toFixed(2);
+        const label = items <= 1 ? 'article' : 'articles';
+        document.getElementById('total-items').textContent  = items + ' ' + label;
+    }
+
+
+    // ================================================================
+    // GESTION DYNAMIQUE DES LIGNES (+ et poubelle)
+    // ================================================================
+
+    /*
+     * addRow()
+     * Appelé par le bouton "＋ Ajouter un produit".
+     * Clone la première ligne, réinitialise ses valeurs, et l'ajoute
+     * à la fin du conteneur.
+     */
+    function addRow() {
+        const container = document.getElementById('product-lines');
+        const newIndex  = container.querySelectorAll('.product-row').length;
+        const firstRow  = container.querySelector('.product-row');
+        const newRow    = firstRow.cloneNode(true); // Copie profonde (avec enfants)
+
+        // Mettre à jour l'index de la nouvelle ligne.
+        newRow.setAttribute('data-index', newIndex);
+
+        // Supprimer toute classe d'erreur éventuelle héritée du clone.
+        newRow.classList.remove('row-error');
+        const oldMsg = newRow.querySelector('.stock-error-msg');
+        if (oldMsg) oldMsg.remove();
+
+        // Réinitialiser le menu déroulant sur le placeholder.
+        const select = newRow.querySelector('select');
+        select.selectedIndex = 0;
+        select.setAttribute('onchange', 'updateRow(this)');
+
+        // Réinitialiser la boîte de prix.
+        const priceBox = newRow.querySelector('.unit-price-box');
+        priceBox.textContent = '—';
+        priceBox.id = 'price-display-' + newIndex;
+
+        // Réinitialiser la quantité à 1.
+        const qtyInput = newRow.querySelector('input[type="number"]');
+        qtyInput.value = 1;
+        qtyInput.setAttribute('oninput', 'onQuantityChange(this)');
+
+        // Activer le bouton poubelle sur la nouvelle ligne.
+        const removeBtn = newRow.querySelector('.btn-remove-row');
+        removeBtn.disabled = false;
+        removeBtn.title    = '';
+
+        container.appendChild(newRow);
+        renumberRows();
+        formDirty = true;
+        recalculateTotal();
+    }
+
+    /*
+     * removeRow(button)
+     * Appelé par le bouton poubelle de chaque ligne.
+     * Supprime la ligne qui contient ce bouton.
+     * Garde toujours au moins une ligne.
+     */
+    function removeRow(button) {
+        const row       = button.closest('.product-row');
+        const container = document.getElementById('product-lines');
+
+        // Ne pas supprimer la dernière ligne restante.
+        if (container.querySelectorAll('.product-row').length <= 1) return;
+
+        row.remove();
+        renumberRows();
+        recalculateTotal();
+    }
+
+    /*
+     * renumberRows()
+     * Après un ajout ou une suppression, remet les numéros (1, 2, 3…)
+     * en ordre et met à jour l'état des boutons poubelle :
+     *   - 1 seule ligne → poubelle désactivée
+     *   - plusieurs lignes → toutes les poubelles actives
+     */
+    function renumberRows() {
+        const rows = document.querySelectorAll('.product-row');
+
+        rows.forEach(function(row, index) {
+            const numLabel = row.querySelector('.row-number');
+            if (numLabel) numLabel.textContent = index + 1;
+            row.setAttribute('data-index', index);
+
+            const removeBtn = row.querySelector('.btn-remove-row');
+            if (removeBtn) {
+                if (rows.length === 1) {
+                    removeBtn.disabled = true;
+                    removeBtn.title    = 'Vous devez garder au moins une ligne';
+                } else {
+                    removeBtn.disabled = false;
+                    removeBtn.title    = '';
+                }
+            }
+        });
+    }
+
+
+    // ================================================================
+    // INITIALISATION AU CHARGEMENT DE LA PAGE
+    // ================================================================
+
+    // Calculer le total initial (utile quand le formulaire est ré-affiché
+    // avec des produits déjà sélectionnés après un POST échoué).
+    recalculateTotal();
+
+    // Mettre à jour les boîtes de prix pour les lignes pré-remplies par PHP.
+    // Sans ça, les boîtes dorées resteraient vides sur les lignes restaurées.
+    document.querySelectorAll('.product-row').forEach(function(row) {
+        const select = row.querySelector('select');
+        if (select && select.value && select.value !== '0') {
+            updateRow(select); // Appeler updateRow comme si l'agent venait de choisir
+        }
+    });
+
+    // Si PHP a envoyé des erreurs de stock, faire défiler jusqu'à la
+    // première ligne en rouge pour que l'agent la voie immédiatement.
+    if (SERVER_ERRORS.length > 0) {
+        const firstError = document.querySelector('.product-row.row-error');
+        if (firstError) {
+            firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }
+
+</script>
 </body>
 </html>
