@@ -1,170 +1,236 @@
 /* ============================================================
-   MVSTOCK — Feuille de style globale
-   Thème : Noir profond + Or
+   MVSTOCK — Global Stylesheet (style.css)
+   Theme: Deep Black + Gold
+   This single file styles the entire application.
+   It is linked from every PHP page via:
+       <link rel="stylesheet" href="style.css">
    ============================================================ */
 
-/* --- Reset & Base ----------------------------------------- */
+
+/* ============================================================
+   RESET & BASE STYLES
+   Browsers apply their own default margins, paddings and
+   box-sizing. We remove them here for a consistent look.
+   ============================================================ */
+
+/* The * selector targets EVERY element on the page. */
 * {
-    margin: 0;
-    padding: 0;
+    margin: 0;       /* Remove all default outer spacing */
+    padding: 0;      /* Remove all default inner spacing */
+
+    /* box-sizing: border-box means padding and border are
+       included INSIDE the element's declared width/height.
+       Without this, adding padding would make elements larger
+       than you expect — a very common CSS gotcha. */
     box-sizing: border-box;
 }
 
+/* Base styles applied to the whole page */
 body {
+    /* Stack of font names: the browser tries each in order.
+       Segoe UI is used on Windows; Tahoma/Geneva/Verdana are fallbacks. */
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+
+    /* Very dark near-black background — the base of the MVSTOCK dark theme */
     background-color: #0D0D0D;
+
+    /* Light gray text so it's readable on the dark background */
     color: #E0E0E0;
 }
 
+
 /* ============================================================
-   PAGE DE CONNEXION
+   LOGIN PAGE
+   Styles for the centered login card shown before the user
+   is authenticated. Only used in login.php.
    ============================================================ */
+
+/* Full-screen container that centers the login card */
 .login-wrapper {
-    min-height: 100vh;
+    min-height: 100vh;   /* Take at least the full height of the browser window */
+
+    /* CSS Flexbox: makes it easy to center the child element */
     display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #0D0D0D;
+    align-items: center;     /* Center vertically */
+    justify-content: center; /* Center horizontally */
+
+    background: #0D0D0D; /* Same dark background as the body */
+
+    /* Two subtle gold glows as decorative background circles.
+       radial-gradient() creates a circular color fade.
+       rgba(212,175,55, 0.06) is gold at 6% opacity — barely visible. */
     background-image:
         radial-gradient(circle at 20% 50%, rgba(212,175,55,0.06) 0%, transparent 55%),
         radial-gradient(circle at 80% 20%, rgba(212,175,55,0.04) 0%, transparent 45%);
 }
 
+/* The actual login card (dark box with the form inside) */
 .login-box {
-    background: #171717;
-    padding: 44px 40px;
-    border-radius: 4px;
-    border: 1px solid #2A2A2A;
-    border-top: 3px solid #D4AF37;
-    width: 100%;
-    max-width: 420px;
+    background: #171717;    /* Slightly lighter than the page background */
+    padding: 44px 40px;     /* Inner spacing: 44px top/bottom, 40px left/right */
+    border-radius: 4px;     /* Slightly rounded corners */
+    border: 1px solid #2A2A2A;         /* Subtle dark border around the card */
+    border-top: 3px solid #D4AF37;     /* Thicker gold accent line at the top */
+    width: 100%;            /* Fill available width */
+    max-width: 420px;       /* But never wider than 420 pixels */
+
+    /* box-shadow adds a realistic shadow effect below the card.
+       0 = no horizontal offset, 20px = vertical offset,
+       60px = blur radius, rgba(0,0,0,0.6) = black at 60% opacity */
     box-shadow: 0 20px 60px rgba(0,0,0,0.6);
 }
 
+/* Logo section at the top of the login card */
 .login-logo {
-    text-align: center;
-    margin-bottom: 32px;
+    text-align: center;   /* Center the logo text horizontally */
+    margin-bottom: 32px;  /* Space below the logo before the form */
 }
 
+/* "MVSTOCK" title inside the login card */
 .login-logo h1 {
-    font-size: 2.2rem;
-    color: #D4AF37;
-    letter-spacing: 5px;
-    font-weight: 800;
-    text-transform: uppercase;
+    font-size: 2.2rem;        /* Large, prominent size */
+    color: #D4AF37;           /* MVSTOCK gold color */
+    letter-spacing: 5px;      /* Spread letters apart for a premium look */
+    font-weight: 800;         /* Extra bold */
+    text-transform: uppercase; /* Force all letters to be capital */
 }
 
+/* "Sell fast, restock faster." slogan below the title */
 .login-logo p {
-    color: #AAA;
-    font-size: 0.82rem;
-    margin-top: 6px;
-    font-style: italic;
-    letter-spacing: 0.5px;
+    color: #AAA;              /* Medium gray — less prominent than the title */
+    font-size: 0.82rem;       /* Small font size */
+    margin-top: 6px;          /* Small gap above the slogan */
+    font-style: italic;       /* Slanted text */
+    letter-spacing: 0.5px;   /* Slight letter spacing */
 }
 
+/* "Connexion" subtitle text inside the card */
 .login-box h2 {
     text-align: center;
     font-size: 1rem;
-    color: #888;
+    color: #888;              /* Subtle gray — not meant to draw attention */
     margin-bottom: 24px;
-    font-weight: 400;
+    font-weight: 400;         /* Normal weight (not bold) */
     text-transform: uppercase;
     letter-spacing: 2px;
 }
 
+/* Labels above each input field (EMAIL, MOT DE PASSE) */
 .login-box label {
-    display: block;
-    font-size: 0.72rem;
+    display: block;           /* Each label takes its own line */
+    font-size: 0.72rem;       /* Small uppercase label */
     font-weight: 700;
     color: #AAA;
-    margin-bottom: 6px;
-    margin-top: 18px;
+    margin-bottom: 6px;       /* Space between label and the input field below */
+    margin-top: 18px;         /* Space above each label group */
     text-transform: uppercase;
     letter-spacing: 1px;
 }
 
+/* The email and password input fields */
 .login-box input {
-    width: 100%;
-    padding: 12px 14px;
+    width: 100%;              /* Full width of the card */
+    padding: 12px 14px;       /* Inner spacing for comfortable typing */
     border: 1px solid #2A2A2A;
     border-radius: 3px;
     font-size: 0.95rem;
-    background: #0D0D0D;
-    color: #F0F0F0;
-    outline: none;
+    background: #0D0D0D;      /* Dark background matching the page */
+    color: #F0F0F0;           /* Near-white text while typing */
+    outline: none;            /* Remove the default blue browser focus ring */
+
+    /* Smooth color transition when the user focuses on the field */
     transition: border-color 0.2s;
 }
 
-.login-box input::placeholder { color: #444; }
+/* Placeholder text style (e.g. "votre@email.com") */
+.login-box input::placeholder { color: #444; } /* Dark gray placeholder */
 
+/* When the user clicks inside a field (focus state) */
 .login-box input:focus {
-    border-color: #D4AF37;
-    background: #111;
+    border-color: #D4AF37;   /* Gold border — clear visual feedback */
+    background: #111;         /* Slightly lighter background */
 }
 
+/* The "Se connecter" (Login) submit button */
 .login-box button {
-    width: 100%;
+    width: 100%;              /* Full width of the card */
     padding: 14px;
     margin-top: 28px;
-    background: #D4AF37;
-    color: #0D0D0D;
+    background: #D4AF37;      /* Gold background */
+    color: #0D0D0D;           /* Black text on gold for contrast */
     border: none;
     border-radius: 3px;
     font-size: 0.85rem;
     font-weight: 800;
-    cursor: pointer;
+    cursor: pointer;          /* Show hand cursor when hovering */
     letter-spacing: 2px;
     text-transform: uppercase;
-    transition: background 0.2s;
+    transition: background 0.2s; /* Smooth color change on hover */
 }
 
+/* Hover state: slightly brighter gold when the mouse is over the button */
 .login-box button:hover { background: #F0C84A; }
 
+/* Error message shown when login credentials are wrong */
 .erreur {
-    background: #1A0808;
-    color: #F87171;
+    background: #1A0808;       /* Very dark red background */
+    color: #F87171;            /* Bright red text */
     padding: 10px 14px;
     border-radius: 3px;
     font-size: 0.84rem;
     margin-top: 14px;
-    border-left: 3px solid #EF4444;
+    border-left: 3px solid #EF4444; /* Bold red left border as accent */
 }
+
 
 /* ============================================================
-   LAYOUT : SIDEBAR + CONTENU
+   MAIN LAYOUT: SIDEBAR + CONTENT AREA
+   After login, every page uses a two-column layout:
+   - A fixed sidebar on the left (250px wide)
+   - A scrollable main content area on the right
    ============================================================ */
+
+/* Outer container that holds both the sidebar and the main content */
 .dashboard-layout {
-    display: flex;
-    min-height: 100vh;
+    display: flex;        /* Flexbox places children side by side */
+    min-height: 100vh;    /* Always fill the full browser window height */
 }
 
-/* --- Sidebar ---------------------------------------------- */
+/* ── Sidebar ─────────────────────────────────────────────── */
 .sidebar {
-    width: 250px;
-    background: #080808;
-    border-right: 1px solid #1C1C1C;
+    width: 250px;               /* Fixed width sidebar */
+    background: #080808;        /* Almost pure black — darker than main content */
+    border-right: 1px solid #1C1C1C; /* Subtle separator line */
+
+    /* Flex column stacks the logo, nav links, and logout vertically */
     display: flex;
     flex-direction: column;
+
+    /* position: fixed + top/left/height pins the sidebar to the screen.
+       It stays visible even when the user scrolls the main content. */
     position: fixed;
     top: 0;
     left: 0;
-    height: 100vh;
-    overflow-y: auto;
+    height: 100vh;        /* Full height of the browser window */
+    overflow-y: auto;     /* Add a scrollbar if content is taller than the screen */
 }
 
+/* Logo area at the top of the sidebar */
 .sidebar-logo {
-    padding: 26px 22px 22px;
-    border-bottom: 1px solid #1C1C1C;
+    padding: 26px 22px 22px;           /* Inner spacing */
+    border-bottom: 1px solid #1C1C1C; /* Separator line below the logo */
 }
 
+/* "MVSTOCK" text inside the sidebar logo area */
 .sidebar-logo h1 {
     font-size: 1.6rem;
-    color: #D4AF37;
+    color: #D4AF37;           /* MVSTOCK gold */
     letter-spacing: 5px;
     font-weight: 800;
     text-transform: uppercase;
 }
 
+/* Slogan text below the sidebar logo */
 .sidebar-logo p {
     color: #999;
     font-size: 0.7rem;
@@ -172,41 +238,47 @@ body {
     font-style: italic;
 }
 
+/* Navigation links container inside the sidebar */
 .sidebar nav {
-    flex: 1;
-    padding: 14px 0;
+    flex: 1;          /* Takes all available vertical space between logo and footer */
+    padding: 14px 0;  /* Small top/bottom padding */
 }
 
+/* Each navigation link in the sidebar */
 .sidebar nav a {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 22px;
-    color: #999;
-    text-decoration: none;
+    display: flex;             /* Put icon and text side by side */
+    align-items: center;       /* Vertically center icon and text */
+    gap: 12px;                 /* Space between icon and text */
+    padding: 12px 22px;        /* Click area is generous — easier to tap/click */
+    color: #999;               /* Default gray text */
+    text-decoration: none;     /* Remove the default blue underline */
     font-size: 0.88rem;
-    border-left: 2px solid transparent;
-    transition: all 0.15s;
+    border-left: 2px solid transparent; /* Invisible left border — becomes visible when active */
+    transition: all 0.15s;     /* Smooth color transitions on hover */
 }
 
+/* Hover state and active (current page) state for sidebar links */
 .sidebar nav a:hover,
 .sidebar nav a.active {
-    color: #D4AF37;
-    background: #111;
-    border-left-color: #D4AF37;
+    color: #D4AF37;            /* Gold text */
+    background: #111;          /* Slightly lighter background highlight */
+    border-left-color: #D4AF37; /* Gold bar on the left edge */
 }
 
+/* The emoji icon inside each sidebar link */
 .sidebar nav a .icon {
     font-size: 1rem;
-    width: 20px;
+    width: 20px;          /* Fixed width keeps all icons aligned */
     text-align: center;
 }
 
+/* Logout button area at the very bottom of the sidebar */
 .sidebar-footer {
     padding: 16px 22px;
-    border-top: 1px solid #1C1C1C;
+    border-top: 1px solid #1C1C1C; /* Separator line above the logout link */
 }
 
+/* The "Déconnexion" (logout) link */
 .sidebar-footer a {
     display: flex;
     align-items: center;
@@ -217,49 +289,56 @@ body {
     transition: color 0.2s;
 }
 
+/* Logout link turns red on hover — a warning color for a destructive action */
 .sidebar-footer a:hover { color: #EF4444; }
 
-/* --- Contenu principal ------------------------------------ */
+
+/* ── Main content area ──────────────────────────────────── */
 .main-content {
-    margin-left: 250px;
-    flex: 1;
-    padding: 30px;
+    margin-left: 250px; /* Push content to the right of the fixed sidebar */
+    flex: 1;            /* Fill all remaining horizontal space */
+    padding: 30px;      /* Inner spacing from all edges */
 }
 
-/* --- Topbar ----------------------------------------------- */
+
+/* ── Top bar (page title + user info) ───────────────────── */
 .topbar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: space-between; /* Push title to left, user info to right */
     margin-bottom: 28px;
 }
 
+/* Page title text (e.g. "PRODUITS", "VENTES") */
 .topbar h2 {
     font-size: 1.3rem;
     font-weight: 700;
-    color: #F0F0F0;
+    color: #F0F0F0;        /* Near-white */
     letter-spacing: 1px;
     text-transform: uppercase;
 }
 
+/* The user info pill (shows name and role badge) in the top-right */
 .topbar .user-info {
     display: flex;
     align-items: center;
     gap: 10px;
-    background: #171717;
+    background: #171717;   /* Slightly lighter dark background */
     padding: 8px 16px;
     border-radius: 3px;
     border: 1px solid #2A2A2A;
 }
 
+/* Text inside the user info pill */
 .topbar .user-info span {
     font-size: 0.86rem;
     color: #888;
 }
 
+/* The "admin" or "agent" role badge (gold pill) */
 .badge-role {
-    background: #D4AF37;
-    color: #0D0D0D;
+    background: #D4AF37;   /* Gold background */
+    color: #0D0D0D;         /* Black text for contrast */
     padding: 2px 10px;
     border-radius: 2px;
     font-size: 0.68rem;
@@ -268,27 +347,36 @@ body {
     letter-spacing: 1.5px;
 }
 
+
 /* ============================================================
-   CARTES DE STATISTIQUES
+   STATISTICS CARDS
+   The 4 metric cards shown at the top of the dashboard and stats page.
+   They display key numbers (sales count, revenue, etc.).
    ============================================================ */
+
+/* 4-column grid that holds the stat cards */
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
+    grid-template-columns: repeat(4, 1fr); /* 4 equal-width columns */
+    gap: 16px;              /* Space between each card */
     margin-bottom: 24px;
 }
 
+/* Individual stat card */
 .stat-card {
     background: #171717;
     border: 1px solid #222;
-    border-top: 2px solid #D4AF37;
+    border-top: 2px solid #D4AF37; /* Gold accent line at the top of each card */
     border-radius: 3px;
     padding: 20px;
+
+    /* Place icon and text side by side */
     display: flex;
     align-items: center;
     gap: 14px;
 }
 
+/* The colored icon box on the left side of each stat card */
 .stat-icon {
     width: 48px;
     height: 48px;
@@ -297,21 +385,25 @@ body {
     align-items: center;
     justify-content: center;
     font-size: 1.3rem;
-    flex-shrink: 0;
+    flex-shrink: 0; /* Don't let the icon shrink if space is tight */
 }
 
-.stat-icon.green  { background: #0C1A0C; border: 1px solid #1A3020; }
-.stat-icon.blue   { background: #0A0F1F; border: 1px solid #151E30; }
-.stat-icon.orange { background: #1A1205; border: 1px solid #2A2008; }
-.stat-icon.red    { background: #1A0808; border: 1px solid #2A1010; }
+/* Color variants for each stat card icon:
+   Each uses a very dark background matching the brand theme */
+.stat-icon.green  { background: #0C1A0C; border: 1px solid #1A3020; } /* Dark green */
+.stat-icon.blue   { background: #0A0F1F; border: 1px solid #151E30; } /* Dark blue */
+.stat-icon.orange { background: #1A1205; border: 1px solid #2A2008; } /* Dark orange */
+.stat-icon.red    { background: #1A0808; border: 1px solid #2A1010; } /* Dark red */
 
+/* The large number displayed in each stat card (e.g. "$37.19") */
 .stat-info h3 {
     font-size: 1.6rem;
     font-weight: 700;
-    color: #D4AF37;
+    color: #D4AF37;   /* Gold — the most visually prominent element */
     line-height: 1;
 }
 
+/* The label below each number (e.g. "Ventes aujourd'hui") */
 .stat-info p {
     font-size: 0.7rem;
     color: #AAA;
@@ -320,73 +412,96 @@ body {
     letter-spacing: 0.8px;
 }
 
+
 /* ============================================================
-   CARTES GÉNÉRIQUES
+   GENERIC CARDS
+   Used throughout the app to wrap tables, forms, and content
+   blocks in a consistent dark container.
    ============================================================ */
+
+/* The card container */
 .card {
-    background: #171717;
+    background: #171717;       /* Dark card background */
     border: 1px solid #222;
     border-radius: 3px;
-    overflow: hidden;
-    margin-bottom: 20px;
+    overflow: hidden;          /* Clips child content to rounded corners */
+    margin-bottom: 20px;       /* Space below each card */
 }
 
+/* The header bar at the top of each card (title + optional action button) */
 .card-header {
     padding: 14px 20px;
-    border-bottom: 1px solid #1E1E1E;
+    border-bottom: 1px solid #1E1E1E; /* Separator between header and content */
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    background: #121212;
+    justify-content: space-between; /* Title on left, button on right */
+    background: #121212;        /* Slightly darker than the card body */
 }
 
+/* Card header title (e.g. "Liste des produits") */
 .card-header h3 {
     font-size: 0.8rem;
     font-weight: 700;
-    color: #D4AF37;
+    color: #D4AF37;             /* Gold — consistent with the brand */
     text-transform: uppercase;
     letter-spacing: 1.5px;
 }
 
+
 /* ============================================================
-   TABLEAUX
+   TABLES
+   Used to display lists of products, clients, sales, etc.
    ============================================================ */
+
+/* Make all tables fill their container's full width */
 table {
     width: 100%;
+
+    /* border-collapse: collapse removes the double borders that
+       appear by default between adjacent table cells */
     border-collapse: collapse;
 }
 
+/* Header row cells (column titles like "Désignation", "Prix", etc.) */
 thead th {
-    background: #101010;
+    background: #101010;       /* Very dark background for the header row */
     padding: 10px 20px;
-    text-align: left;
-    font-size: 0.68rem;
+    text-align: left;          /* Align text to the left */
+    font-size: 0.68rem;        /* Small uppercase label style */
     font-weight: 700;
-    color: #D4AF37;
+    color: #D4AF37;            /* Gold column titles */
     text-transform: uppercase;
     letter-spacing: 1px;
-    border-bottom: 1px solid #2A2A2A;
+    border-bottom: 1px solid #2A2A2A; /* Separator line below headers */
 }
 
+/* Data cells in every table row */
 tbody td {
-    padding: 13px 20px;
+    padding: 13px 20px;        /* Comfortable spacing inside each cell */
     font-size: 0.87rem;
-    color: #B0B0B0;
-    border-bottom: 1px solid #1A1A1A;
+    color: #B0B0B0;            /* Gray text — less bright than headers */
+    border-bottom: 1px solid #1A1A1A; /* Subtle row separator */
 }
 
+/* Remove the bottom border from the very last row (no double line at the bottom) */
 tbody tr:last-child td { border-bottom: none; }
 
+/* When the mouse hovers over a row, highlight it */
 tbody tr:hover td {
-    background: #1E1E1E;
-    color: #F0F0F0;
+    background: #1E1E1E;       /* Slightly lighter background on hover */
+    color: #F0F0F0;            /* Brighter text on hover */
 }
+
 
 /* ============================================================
    BADGES
+   Small colored labels used to indicate status or category.
+   Examples: "En stock", "Rupture", "Admin", "Agent"
    ============================================================ */
+
+/* Base badge style */
 .badge {
-    display: inline-block;
+    display: inline-block;     /* Allows padding without breaking text flow */
     padding: 3px 8px;
     border-radius: 2px;
     font-size: 0.68rem;
@@ -395,85 +510,128 @@ tbody tr:hover td {
     letter-spacing: 0.8px;
 }
 
+/* Red badge — used for errors, out-of-stock, admin role */
 .badge-danger  { background: #1A0808; color: #F87171; border: 1px solid #3A1010; }
+
+/* Orange/amber badge — used for low stock warnings */
 .badge-warning { background: #1A1205; color: #FBB040; border: 1px solid #352808; }
+
+/* Green badge — used for "in stock", agent role */
 .badge-success { background: #0A1A0A; color: #6EE7B7; border: 1px solid #103020; }
+
+/* Blue badge — used for neutral info (e.g. "Anonyme") */
 .badge-info    { background: #0A0F1A; color: #93C5FD; border: 1px solid #151E30; }
 
+
 /* ============================================================
-   ALERTES STOCK
+   STOCK ALERT ROWS
+   Used in the dashboard to show products below their stock threshold.
+   Each alert is a horizontal row with the product name on the left
+   and a badge on the right.
    ============================================================ */
+
+/* Individual stock alert row */
 .alert-stock {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: space-between; /* Name on left, badge on right */
     padding: 13px 20px;
-    border-bottom: 1px solid #1A1A1A;
+    border-bottom: 1px solid #1A1A1A; /* Separator between rows */
 }
 
+/* Remove border from the last alert row */
 .alert-stock:last-child { border-bottom: none; }
 
+/* Product name in each alert row */
 .alert-stock .produit-info strong {
     display: block;
     font-size: 0.87rem;
     color: #E0E0E0;
 }
 
+/* Category name or secondary info below the product name */
 .alert-stock .produit-info span {
     font-size: 0.76rem;
     color: #888;
 }
 
+
 /* ============================================================
-   MESSAGES SUCCÈS / ERREUR (utilisés dans toutes les pages)
+   SUCCESS / ERROR MESSAGES
+   Green and red notification bars shown after form submissions.
+   Used across all pages (produits, clients, ventes, etc.)
    ============================================================ */
+
+/* Base style shared by both message types */
 .alert-msg {
     padding: 11px 16px;
     border-radius: 3px;
     margin-bottom: 20px;
     font-weight: 500;
     font-size: 0.87rem;
-    border-left: 3px solid;
+    border-left: 3px solid; /* The left border color is set per variant below */
 }
 
+/* Green success message (e.g. "Produit ajouté avec succès") */
 .alert-msg.success { background: #0A1A0A; color: #6EE7B7; border-left-color: #059669; }
+
+/* Red error message (e.g. "Stock insuffisant") */
 .alert-msg.danger  { background: #1A0808; color: #F87171; border-left-color: #EF4444; }
 
+
 /* ============================================================
-   BOUTONS
+   BUTTONS
+   Reusable button styles used for actions across all pages.
+   Each variant (primary, danger, secondary, warning) has its
+   own color scheme.
    ============================================================ */
+
+/* Base button style shared by all variants */
 .btn {
-    display: inline-flex;
+    display: inline-flex;     /* Allows icon + text to sit side by side */
     align-items: center;
-    gap: 6px;
+    gap: 6px;                 /* Space between icon and label */
     padding: 7px 14px;
     border-radius: 2px;
     font-size: 0.75rem;
     font-weight: 700;
-    cursor: pointer;
+    cursor: pointer;          /* Hand cursor on hover */
     border: 1px solid transparent;
-    text-decoration: none;
-    transition: all 0.15s;
+    text-decoration: none;    /* Remove underline from <a> buttons */
+    transition: all 0.15s;   /* Smooth color change on hover */
     letter-spacing: 0.5px;
     text-transform: uppercase;
 }
 
+/* Primary (gold) button — main actions like "Save", "Add" */
 .btn-primary            { background: #D4AF37; color: #0D0D0D; border-color: #D4AF37; }
-.btn-primary:hover      { background: #F0C84A; border-color: #F0C84A; }
+.btn-primary:hover      { background: #F0C84A; border-color: #F0C84A; } /* Brighter gold on hover */
+
+/* Danger (red outline) button — destructive actions like "Delete" */
 .btn-danger             { background: transparent; color: #F87171; border-color: #3A1010; }
 .btn-danger:hover       { background: #1A0808; color: #FCA5A5; }
+
+/* Secondary (gray outline) button — cancel, back, view actions */
 .btn-secondary          { background: transparent; color: #777; border-color: #2A2A2A; }
-.btn-secondary:hover    { color: #D4AF37; border-color: #D4AF37; background: #111; }
+.btn-secondary:hover    { color: #D4AF37; border-color: #D4AF37; background: #111; } /* Gold on hover */
+
+/* Warning (amber outline) button — edit actions */
 .btn-warning            { background: transparent; color: #FBB040; border-color: #352808; }
 .btn-warning:hover      { background: #1A1205; }
 
-/* ============================================================
-   FORMULAIRES
-   ============================================================ */
-.form-group { margin-bottom: 16px; }
 
+/* ============================================================
+   FORMS
+   Input fields, dropdowns, and text areas used in the
+   add/edit forms for products, clients, and users.
+   ============================================================ */
+
+/* Wrapper around each label + input pair */
+.form-group { margin-bottom: 16px; } /* Space between form fields */
+
+/* Label above each form field */
 .form-group label {
-    display: block;
+    display: block;           /* Label on its own line */
     font-size: 0.7rem;
     font-weight: 700;
     color: #AAA;
@@ -482,49 +640,62 @@ tbody tr:hover td {
     letter-spacing: 1px;
 }
 
+/* Text inputs, dropdown selects, and textareas */
 .form-group input,
 .form-group select,
 .form-group textarea {
-    width: 100%;
+    width: 100%;              /* Full width of the form column */
     padding: 10px 12px;
     border: 1px solid #2A2A2A;
     border-radius: 2px;
     font-size: 0.88rem;
-    color: #E0E0E0;
-    background: #0D0D0D;
-    outline: none;
-    transition: border-color 0.15s;
+    color: #E0E0E0;           /* Light text for readability on dark background */
+    background: #0D0D0D;      /* Dark input background matching the theme */
+    outline: none;            /* Remove default browser focus outline */
+    transition: border-color 0.15s; /* Smooth border color change on focus */
 }
 
+/* Placeholder text style (grayed out hint text) */
 .form-group input::placeholder { color: #444; }
 
+/* When a field is focused (user clicks inside it) — gold border highlight */
 .form-group input:focus,
 .form-group select:focus,
 .form-group textarea:focus { border-color: #D4AF37; }
 
+/* Dropdown option items need their own dark background (browser default is white) */
 .form-group select option { background: #171717; color: #E0E0E0; }
 
+
 /* ============================================================
-   ÉTAT VIDE
+   EMPTY STATE
+   Shown inside a card when there is no data to display yet.
+   For example: "No products found" or "No sales recorded."
    ============================================================ */
+
 .empty-state {
     text-align: center;
-    padding: 40px 24px;
+    padding: 40px 24px;     /* Generous padding so it doesn't look cramped */
     color: #777;
     font-size: 0.87rem;
 }
 
+/* The large emoji icon above the empty message */
 .empty-state .empty-icon {
     font-size: 2rem;
     margin-bottom: 8px;
-    opacity: 0.4;
+    opacity: 0.4;           /* Semi-transparent — not too distracting */
 }
 
+
 /* ============================================================
-   GRILLE 2 COLONNES
+   TWO-COLUMN GRID
+   Used to place two cards side by side on the same row.
+   Example: "Recent Sales" + "Stock Alerts" on the dashboard.
    ============================================================ */
+
 .two-col-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
+    grid-template-columns: 1fr 1fr; /* Two equal-width columns */
+    gap: 20px;                      /* Space between the two cards */
 }
