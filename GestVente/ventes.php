@@ -1,229 +1,251 @@
 <?php
 /*
  * ============================================================
- * FILE: ventes.php — SALES MODULE (REDESIGNED FORM)
- * This page handles everything related to sales:
- *   1. Recording a new sale with a dynamic product line builder
- *   2. Automatically decreasing product stock after a sale
- *   3. Automatically adding loyalty points to the client
- *   4. Showing the list of recent sales
- *   5. Showing the full detail of a single sale
- *   6. Generating a downloadable PDF invoice
+ * FILE: ventes.php — SALES MODULE
  *
- * NEW FEATURES:
- *   - Dynamic product rows: start with 1, add/remove with + / trash buttons
- *   - Real-time total price calculation as the agent fills the form
- *   - Unit price displayed clearly when a product is selected
- *   - Save button aligned to the right
- *   - Unsaved-changes warning if the agent tries to leave mid-form
+ * Key behaviours:
+ *   1. Recording a new sale with a dynamic product line builder
+ *   2. Per-row stock validation — only the out-of-stock row
+ *      glows red; the rest of the order is preserved
+ *   3. Automatically decreasing product stock after a sale
+ *   4. Automatically adding loyalty points to the client
+ *   5. Showing the list of recent sales
+ *   6. Showing the full detail of a single sale
+ *   7. Generating a downloadable PDF invoice
+ *
+ * STOCK VALIDATION STRATEGY
+ * --------------------------
+ * Client-side (JavaScript — primary layer):
+ *   When the agent clicks "Enregistrer", JS checks every filled
+ *   row against the STOCKS lookup table (embedded by PHP).
+ *   If a row exceeds available stock, that row glows red and the
+ *   form submission is blocked. All other rows stay intact.
+ *   The agent simply fixes the quantity (or removes the row)
+ *   and tries again — no data is lost.
+ *
+ * Server-side (PHP — safety-net layer):
+ *   Even if JS is disabled, PHP re-validates every row.
+ *   Instead of stopping at the first bad line (old behaviour),
+ *   it now collects ALL problem lines into $stock_errors[].
+ *   These error indices are passed back to JS so the rows can
+ *   still be highlighted on the reloaded page.
  * ============================================================
  */
 
-// Start the PHP session so we can read who is currently logged in.
-// $_SESSION variables like user_id and user_role are stored during login.
+// Resume the PHP session so we can read $_SESSION variables
+// (user_id, user_nom, user_role) that were set at login.
 session_start();
 
-// Include the database connection file — gives us the $conn variable
-// needed to run SQL queries against the MySQL database.
+// Include the database connection — gives us $conn for SQL queries.
 require_once 'config.php';
 
-// SECURITY GATE: if no user_id exists in the session, the visitor is not
-// logged in. Redirect them to the login page and stop execution immediately.
+// SECURITY GATE: redirect unauthenticated visitors to the login page.
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
     exit();
 }
 
-// $message holds a green success notification shown after a successful action.
-// $erreur holds a red error notification shown when something goes wrong.
-// Both start as empty strings — they are only filled when an action occurs.
-$message = "";
-$erreur  = "";
+// Feedback variables shown to the user after a form action.
+// $message = green success bar.  $erreur = red error bar.
+$message      = "";
+$erreur       = "";
+
+/*
+ * $stock_errors holds the form-row indices (0-based) of lines
+ * that failed the server-side stock check.
+ * It is encoded as JSON and passed to JavaScript so that those
+ * rows can be highlighted red even on a PHP-reloaded page.
+ * Example: [1, 3]  means rows 2 and 4 (0-indexed) had stock issues.
+ */
+$stock_errors = [];
 
 /*
  * ══════════════════════════════════════════════════════════════
- * PROCESS A NEW SALE (POST request with action = 'vendre')
+ * PROCESS A NEW SALE  (POST, action = 'vendre')
  * ══════════════════════════════════════════════════════════════
- * When the agent submits the form, the browser sends data via POST.
- * We validate each product line and run 4 atomic database operations:
- *   Step 1 — Calculate the grand total
- *   Step 2 — Insert the sale header into the "vente" table
- *   Step 3 — Insert each product line into "ligne_vente"
- *   Step 4 — Decrease the stock for each sold product
- *   Step 5 — Add loyalty points to the client (if not anonymous)
  */
+if ($_SERVER['REQUEST_METHOD'] == 'POST' &&
+    isset($_POST['action']) && $_POST['action'] == 'vendre') {
 
-// Check: was the form submitted via POST, AND does the hidden "action" field
-// equal "vendre"? This prevents other POST requests from triggering this block.
-if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'vendre') {
-
-    // Read the ID of the agent currently logged in.
-    // (int) casts it to an integer — essential for SQL safety.
+    // ID of the logged-in agent — cast to int for SQL safety.
     $id_utilisateur = (int) $_SESSION['user_id'];
 
-    // Read the selected client ID from the dropdown.
-    // If the field is empty (anonymous sale), we use the SQL keyword NULL.
-    $id_client = !empty($_POST['id_client']) ? (int) $_POST['id_client'] : "NULL";
+    // Client ID from dropdown, or SQL NULL for anonymous sales.
+    $id_client = !empty($_POST['id_client'])
+        ? (int) $_POST['id_client']
+        : "NULL";
 
-    // Sanitize the payment method text to prevent SQL injection attacks.
-    // mysqli_real_escape_string() escapes dangerous characters like quotes.
+    // Sanitize payment method — escapes dangerous SQL characters.
     $mode_paiement = mysqli_real_escape_string($conn, $_POST['mode_paiement']);
 
-    // $lignes_valides will hold all the product lines that pass validation.
-    // The agent can add as many rows as they want — we process all of them.
+    // $lignes_valides: rows that passed ALL validation checks.
     $lignes_valides = [];
 
-    // $_POST['id_produit'] is an array because the form inputs use name="id_produit[]".
-    // We use isset() to check it exists before looping, in case 0 rows were submitted.
+    // Only process if at least one product row was submitted.
     if (isset($_POST['id_produit']) && is_array($_POST['id_produit'])) {
 
-        // Loop through every product row submitted by the form.
-        // count() gives the total number of rows sent.
         foreach ($_POST['id_produit'] as $index => $id_produit) {
 
-            // Convert the product ID to a safe integer.
             $id_produit = (int) $id_produit;
+            $quantite   = isset($_POST['quantite'][$index])
+                ? (int) $_POST['quantite'][$index]
+                : 0;
 
-            // Read the quantity for this row. Default to 0 if not set.
-            $quantite = isset($_POST['quantite'][$index]) ? (int) $_POST['quantite'][$index] : 0;
-
-            // Skip this row if no product was selected (id = 0) or quantity is zero/negative.
+            // Skip blank rows (product not selected, or quantity ≤ 0).
             if ($id_produit == 0 || $quantite <= 0) {
-                continue; // Move on to the next row
+                continue;
             }
 
-            // Fetch this product's live price and available stock from the database.
-            // We always use the current database price (not the displayed value)
-            // to prevent any tampering with the form data.
-            $res     = mysqli_query($conn, "SELECT designation, prix_unitaire, stock_actuel FROM produit WHERE id_produit = $id_produit");
+            // Fetch the live price and current stock for this product.
+            // We always trust the database price, not the displayed value,
+            // to prevent any client-side tampering.
+            $res     = mysqli_query($conn,
+                "SELECT designation, prix_unitaire, stock_actuel
+                 FROM produit WHERE id_produit = $id_produit"
+            );
             $produit = mysqli_fetch_assoc($res);
 
-            // Stock validation: refuse the sale if the requested quantity
-            // exceeds what is currently available in stock.
+            // ── SERVER-SIDE STOCK CHECK ───────────────────────────
+            // If the requested quantity exceeds available stock,
+            // record this row index in $stock_errors.
+            // IMPORTANT: we do NOT break — we continue checking the
+            // remaining rows so ALL problems are found in one pass.
             if ($produit['stock_actuel'] < $quantite) {
-                $erreur = "Stock insuffisant pour : " . $produit['designation'] .
-                          " (disponible : " . $produit['stock_actuel'] . ")";
-                break; // Stop processing — the whole sale is rejected
+                $stock_errors[] = $index; // Remember which row failed
+                continue;                 // Skip this row, check the next
             }
 
-            // This row passed all checks — add it to our validated lines list.
+            // Row passed — add it to the validated list.
             $lignes_valides[] = [
                 'id_produit'    => $id_produit,
                 'quantite'      => $quantite,
                 'prix_unitaire' => (float) $produit['prix_unitaire'],
-                'designation'   => $produit['designation']
+                'designation'   => $produit['designation'],
             ];
         }
     }
 
-    // Only proceed to save if there were no errors AND at least one valid line.
-    if ($erreur == "" && count($lignes_valides) > 0) {
+    // If any rows had stock problems, tell the agent which ones failed.
+    // The order is NOT saved — they must fix the highlighted rows first.
+    if (!empty($stock_errors)) {
+        $erreur = "Certains produits dépassent le stock disponible. "
+                . "Veuillez corriger les lignes surlignées en rouge.";
 
-        // ── STEP 1: Calculate the grand total ─────────────────────
-        // Loop through all valid lines and sum up quantity × unit_price.
+    } elseif (count($lignes_valides) === 0) {
+        // All rows were blank — no product was selected at all.
+        $erreur = "Veuillez sélectionner au moins un produit.";
+
+    } else {
+        // ── ALL ROWS VALID — SAVE THE SALE ──────────────────────
+
+        // STEP 1: Calculate the grand total.
         $montant_total = 0;
         foreach ($lignes_valides as $ligne) {
             $montant_total += $ligne['prix_unitaire'] * $ligne['quantite'];
         }
 
-        // ── STEP 2: Insert the sale header into the "vente" table ─
-        // One row in "vente" represents the entire transaction.
-        // The id_vente is auto-generated by MySQL (AUTO_INCREMENT).
-        $sql_vente = "INSERT INTO vente (montant_total, mode_paiement, id_client, id_utilisateur)
-                      VALUES ($montant_total, '$mode_paiement', $id_client, $id_utilisateur)";
+        // STEP 2: Insert the sale header into the "vente" table.
+        // id_vente is auto-generated by MySQL (AUTO_INCREMENT).
+        $sql_vente =
+            "INSERT INTO vente (montant_total, mode_paiement, id_client, id_utilisateur)
+             VALUES ($montant_total, '$mode_paiement', $id_client, $id_utilisateur)";
 
         if (mysqli_query($conn, $sql_vente)) {
 
-            // mysqli_insert_id() returns the auto-generated id_vente we just created.
-            // We MUST save this to link all the product lines to this sale.
+            // mysqli_insert_id() returns the ID of the row we just inserted.
+            // We need it to link all product lines to this sale.
             $id_vente = mysqli_insert_id($conn);
 
-            // ── STEPS 3 & 4: Process each product line ─────────────
             foreach ($lignes_valides as $ligne) {
 
-                // Insert this product line into ligne_vente.
-                // Storing prix_unitaire here preserves the price history —
-                // even if the product price changes later, the sale stays accurate.
-                $sql_ligne = "INSERT INTO ligne_vente (quantite, prix_unitaire, id_vente, id_produit)
-                              VALUES ({$ligne['quantite']}, {$ligne['prix_unitaire']}, $id_vente, {$ligne['id_produit']})";
-                mysqli_query($conn, $sql_ligne);
+                // STEP 3: Insert each product line into ligne_vente.
+                // Storing prix_unitaire here preserves the historical price —
+                // if the product price changes tomorrow, old invoices stay correct.
+                mysqli_query($conn,
+                    "INSERT INTO ligne_vente
+                         (quantite, prix_unitaire, id_vente, id_produit)
+                     VALUES
+                         ({$ligne['quantite']}, {$ligne['prix_unitaire']},
+                          $id_vente, {$ligne['id_produit']})"
+                );
 
-                // ── STEP 4: Decrease the product's stock ─────────────
-                // Subtract the quantity sold from the current stock.
-                $sql_stock = "UPDATE produit
-                              SET stock_actuel = stock_actuel - {$ligne['quantite']}
-                              WHERE id_produit = {$ligne['id_produit']}";
-                mysqli_query($conn, $sql_stock);
+                // STEP 4: Deduct the sold quantity from the product's stock.
+                mysqli_query($conn,
+                    "UPDATE produit
+                     SET stock_actuel = stock_actuel - {$ligne['quantite']}
+                     WHERE id_produit = {$ligne['id_produit']}"
+                );
             }
 
-            // ── STEP 5: Add loyalty points to the client ───────────
-            // Only runs for named clients (not anonymous sales).
-            // Rule: 1 loyalty point per monetary unit spent.
-            // (int) rounds down the total so points are always whole numbers.
+            // STEP 5: Award loyalty points to the client (not for anonymous sales).
+            // Rule: 1 point per monetary unit spent. (int) ensures whole numbers.
             if ($id_client != "NULL") {
-                $points     = (int) $montant_total;
-                $sql_points = "UPDATE client
-                               SET points_fidelite = points_fidelite + $points
-                               WHERE id_client = $id_client";
-                mysqli_query($conn, $sql_points);
+                $points = (int) $montant_total;
+                mysqli_query($conn,
+                    "UPDATE client
+                     SET points_fidelite = points_fidelite + $points
+                     WHERE id_client = $id_client"
+                );
             }
 
-            // Show a success message with the sale ID and formatted total.
-            $message = "Vente #$id_vente enregistrée ! Total : $" . number_format($montant_total, 2);
+            $message = "Vente #$id_vente enregistrée ! Total : $"
+                     . number_format($montant_total, 2);
 
         } else {
-            // The INSERT into "vente" failed — show the MySQL error for debugging.
             $erreur = "Erreur lors de l'enregistrement : " . mysqli_error($conn);
         }
-
-    } elseif ($erreur == "" && count($lignes_valides) == 0) {
-        // The form was submitted but all product rows were empty.
-        $erreur = "Veuillez sélectionner au moins un produit.";
     }
 }
 
 /*
  * ══════════════════════════════════════════════════════════════
- * FETCH DATA FOR THE FORM DROPDOWNS
+ * FETCH DATA FOR DROPDOWNS AND JAVASCRIPT LOOKUP TABLES
  * ══════════════════════════════════════════════════════════════
  */
 
-// Fetch all clients for the client selector dropdown, ordered alphabetically.
-$clients = mysqli_query($conn, "SELECT id_client, nom, prenom FROM client ORDER BY nom");
+// All clients for the client selector, ordered alphabetically.
+$clients = mysqli_query($conn,
+    "SELECT id_client, nom, prenom FROM client ORDER BY nom"
+);
 
-// Fetch all products with their prices and stock levels.
-// We fetch them into a PHP array so we can:
-//   1. Build the dropdown options in HTML
-//   2. Export the price data to JavaScript for real-time total calculation
+// All products with price AND stock level.
+// Both are needed: price → real-time total; stock → client-side validation.
 $produits_res   = mysqli_query($conn,
-    "SELECT id_produit, designation, prix_unitaire, stock_actuel FROM produit ORDER BY designation"
+    "SELECT id_produit, designation, prix_unitaire, stock_actuel
+     FROM produit ORDER BY designation"
 );
 $produits_array = [];
 while ($p = mysqli_fetch_assoc($produits_res)) {
-    $produits_array[] = $p; // Build a PHP array, one entry per product
+    $produits_array[] = $p;
 }
 
 /*
- * ── EXPORT PRODUCT PRICES TO JAVASCRIPT ──────────────────────
- * We convert the PHP product array into a JSON object that
- * JavaScript can use to look up prices without calling the server.
- * Format: { "id_produit": prix_unitaire, "3": 13.49, "5": 0.99 ... }
+ * Build two parallel JSON objects for JavaScript:
+ *
+ *   PRICES  — maps product ID → unit price
+ *             Used for: real-time total calculation
+ *             Example: { "1": 13.49, "3": 0.99 }
+ *
+ *   STOCKS  — maps product ID → current stock level
+ *             Used for: per-row stock validation before form submission
+ *             Example: { "1": 12, "3": 45 }
+ *
+ * json_encode() converts the PHP associative arrays to valid JS syntax.
  */
-$prix_json = [];
+$prix_json   = [];
+$stocks_json = [];
 foreach ($produits_array as $p) {
-    // Key = product ID (as string), Value = unit price as a float number
-    $prix_json[$p['id_produit']] = (float) $p['prix_unitaire'];
+    $prix_json[$p['id_produit']]   = (float) $p['prix_unitaire'];
+    $stocks_json[$p['id_produit']] = (int)   $p['stock_actuel'];
 }
-// json_encode() converts the PHP associative array to a JSON string
-// that can be injected directly into JavaScript code.
-$prix_js = json_encode($prix_json);
+$prix_js    = json_encode($prix_json);
+$stocks_js  = json_encode($stocks_json);
 
-/*
- * ── FETCH THE 20 MOST RECENT SALES ───────────────────────────
- * JOIN with client and utilisateur tables to get names instead of raw IDs.
- * ORDER BY date DESC shows newest sales first.
- * LIMIT 20 keeps the list manageable.
- */
+// Encode the PHP $stock_errors array as JSON so JavaScript can read it.
+// If no errors occurred (successful save or fresh page load), this is "[]".
+$stock_errors_js = json_encode($stock_errors);
+
+// 20 most recent sales for the table at the bottom of the page.
 $ventes = mysqli_query($conn,
     "SELECT v.id_vente, v.date_vente, v.montant_total, v.mode_paiement,
             CONCAT(c.prenom, ' ', c.nom) AS client_nom,
@@ -235,18 +257,11 @@ $ventes = mysqli_query($conn,
      LIMIT 20"
 );
 
-/*
- * ── VIEW DETAIL OF A SINGLE SALE (?voir=ID) ──────────────────
- * Clicking "Voir" on a sale row appends ?voir=ID to the URL.
- * We detect that here and load the full sale details.
- */
+// Sale detail view: triggered when ?voir=ID is in the URL.
 $detail_vente  = null;
 $detail_lignes = null;
-
 if (isset($_GET['voir'])) {
     $id = (int) $_GET['voir'];
-
-    // Fetch the sale header with client and agent names via LEFT JOINs.
     $res_detail = mysqli_query($conn,
         "SELECT v.*,
                 CONCAT(c.prenom, ' ', c.nom) AS client_nom,
@@ -256,10 +271,7 @@ if (isset($_GET['voir'])) {
          LEFT JOIN utilisateur u ON v.id_utilisateur = u.id_utilisateur
          WHERE v.id_vente = $id"
     );
-    $detail_vente = mysqli_fetch_assoc($res_detail);
-
-    // Fetch all the product lines (items) in this sale.
-    // sous_total is calculated directly in SQL: quantity × unit_price.
+    $detail_vente  = mysqli_fetch_assoc($res_detail);
     $detail_lignes = mysqli_query($conn,
         "SELECT p.designation, lv.quantite, lv.prix_unitaire,
                 (lv.quantite * lv.prix_unitaire) AS sous_total
@@ -277,47 +289,110 @@ if (isset($_GET['voir'])) {
     <link rel="stylesheet" href="style.css">
 
     <style>
-        /*
-         * ── INLINE STYLES FOR THE DYNAMIC SALE FORM ──────────────
-         * These styles are specific to the new form design.
-         * They complement the global style.css file.
-         */
+        /* ============================================================
+           INLINE STYLES — SALE FORM
+           These complement style.css and cover the dynamic form
+           elements that are specific to this page.
+           ============================================================ */
 
-        /* ── Product line row container ──────────────────────── */
-        /* Each product row is a horizontal flex container holding:
-           a number label, the product dropdown, unit price, quantity,
-           and the trash (delete) button. */
+        /* ── Product row container ─────────────────────────────── */
         .product-row {
             display: flex;
             align-items: center;
-            gap: 12px;               /* Space between each element in the row */
-            margin-bottom: 10px;     /* Space below each row */
-            padding: 14px 16px;      /* Inner padding for breathing room */
-            background: #111;        /* Dark background matching MVSTOCK theme */
-            border: 1px solid #2A2A2A; /* Subtle dark border */
-            border-radius: 4px;      /* Slightly rounded corners */
-            transition: border-color 0.2s; /* Smooth border highlight on focus */
+            gap: 12px;
+            margin-bottom: 10px;
+            padding: 14px 16px;
+            background: #111;
+            border: 1px solid #2A2A2A;
+            border-radius: 4px;
+            /* Smooth transitions for border color and box-shadow
+               so the red glow appears and disappears gradually. */
+            transition: border-color 0.25s, box-shadow 0.25s;
+            position: relative; /* Needed so the error message can be positioned inside */
         }
 
-        /* When any field inside a row is focused, highlight the whole row */
+        /* Gold border when any field inside the row has keyboard focus */
         .product-row:focus-within {
-            border-color: #D4AF37;   /* Gold border — MVSTOCK brand color */
+            border-color: #D4AF37;
         }
 
-        /* Row number label on the far left (e.g. "1", "2", "3") */
+        /* ── ROW ERROR STATE (out-of-stock warning) ────────────── */
+        /*
+         * Applied by JavaScript when a row's quantity exceeds stock.
+         * The red glowing border draws the agent's eye to exactly
+         * which line needs to be fixed — all other rows are unaffected.
+         *
+         * The :focus-within rule above is overridden by specificity
+         * so a focused error row stays red, not gold.
+         */
+        .product-row.row-error {
+            border-color: #EF4444 !important; /* Solid red border */
+            /* box-shadow creates the "glow" effect:
+               - First shadow: tight red ring (3px spread)
+               - Second shadow: wider, softer red glow (12px spread)
+               The pulsing animation alternates between two glow intensities. */
+            box-shadow:
+                0 0 0 3px rgba(239, 68, 68, 0.20),
+                0 0 12px rgba(239, 68, 68, 0.15);
+            animation: pulse-red 1.6s ease-in-out infinite;
+            background: #1A0808; /* Very dark red background tint */
+        }
+
+        /* Keyframe animation: the red glow pulses between two intensity levels */
+        @keyframes pulse-red {
+            0%, 100% {
+                box-shadow:
+                    0 0 0 3px rgba(239, 68, 68, 0.20),
+                    0 0 12px rgba(239, 68, 68, 0.12);
+            }
+            50% {
+                /* Glow becomes more intense at the midpoint of each cycle */
+                box-shadow:
+                    0 0 0 4px rgba(239, 68, 68, 0.38),
+                    0 0 22px rgba(239, 68, 68, 0.28);
+            }
+        }
+
+        /* Small error message shown inside the row below the fields.
+           It explains exactly what is wrong (e.g. "Only 3 in stock"). */
+        .stock-error-msg {
+            position: absolute;    /* Positioned relative to the .product-row */
+            bottom: 4px;           /* Sit near the bottom edge of the row */
+            left: 50px;            /* Indent past the row number */
+            font-size: 0.7rem;
+            font-weight: 700;
+            color: #F87171;        /* Red text matching the border */
+            letter-spacing: 0.3px;
+            /* Fade in smoothly when the error is added */
+            animation: fadeIn 0.2s ease;
+        }
+
+        /* Simple fade-in animation for the error message */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(3px); }
+            to   { opacity: 1; transform: translateY(0);   }
+        }
+
+        /* Add extra bottom padding to rows that show an error message
+           so the message doesn't overlap the row content */
+        .product-row.row-error {
+            padding-bottom: 26px;
+        }
+
+        /* ── Row number label ──────────────────────────────────── */
         .row-number {
-            color: #555;             /* Dim gray — not meant to draw attention */
+            color: #555;
             font-size: 0.8rem;
             font-weight: 700;
             min-width: 20px;
             text-align: center;
         }
 
-        /* The product select dropdown inside each row */
+        /* ── Product dropdown ──────────────────────────────────── */
         .product-row select {
-            flex: 2;                 /* Takes 2 parts of available width */
+            flex: 2;
             padding: 9px 12px;
-            background: #0D0D0D;     /* Same dark as other form inputs */
+            background: #0D0D0D;
             color: #E0E0E0;
             border: 1px solid #333;
             border-radius: 3px;
@@ -325,17 +400,17 @@ if (isset($_GET['voir'])) {
             outline: none;
             transition: border-color 0.15s;
         }
-        .product-row select:focus { border-color: #D4AF37; }
-        .product-row select option { background: #171717; color: #E0E0E0; }
+        .product-row select:focus    { border-color: #D4AF37; }
+        .product-row select option   { background: #171717; color: #E0E0E0; }
 
-        /* Unit price display box (read-only, auto-filled when product selected) */
+        /* ── Unit price read-only display ──────────────────────── */
         .unit-price-box {
-            flex: 1;                 /* Takes 1 part of available width */
+            flex: 1;
             padding: 9px 12px;
             background: #0D0D0D;
             border: 1px solid #333;
             border-radius: 3px;
-            color: #D4AF37;          /* Gold — makes the price visually prominent */
+            color: #D4AF37;        /* Gold — visually prominent */
             font-size: 0.88rem;
             font-weight: 700;
             text-align: right;
@@ -343,9 +418,9 @@ if (isset($_GET['voir'])) {
             letter-spacing: 0.5px;
         }
 
-        /* Quantity number input inside each row */
+        /* ── Quantity number input ─────────────────────────────── */
         .product-row input[type="number"] {
-            flex: 0 0 80px;          /* Fixed width — doesn't grow or shrink */
+            flex: 0 0 80px;
             padding: 9px 10px;
             background: #0D0D0D;
             color: #E0E0E0;
@@ -358,12 +433,12 @@ if (isset($_GET['voir'])) {
         }
         .product-row input[type="number"]:focus { border-color: #D4AF37; }
 
-        /* Trash (delete row) button on the right of each row */
+        /* ── Trash (delete row) button ─────────────────────────── */
         .btn-remove-row {
-            flex: 0 0 auto;          /* Fixed size, doesn't grow */
+            flex: 0 0 auto;
             background: transparent;
             border: 1px solid #3A1010;
-            color: #F87171;          /* Red — signals a destructive action */
+            color: #F87171;
             border-radius: 3px;
             padding: 8px 10px;
             cursor: pointer;
@@ -371,24 +446,17 @@ if (isset($_GET['voir'])) {
             transition: all 0.15s;
             line-height: 1;
         }
-        .btn-remove-row:hover {
-            background: #1A0808;    /* Dark red background on hover */
-            color: #FCA5A5;
-        }
-        /* The first row's trash button is disabled — you need at least 1 row */
-        .btn-remove-row:disabled {
-            opacity: 0.25;
-            cursor: not-allowed;
-        }
+        .btn-remove-row:hover    { background: #1A0808; color: #FCA5A5; }
+        .btn-remove-row:disabled { opacity: 0.25; cursor: not-allowed; }
 
-        /* "Add product" button below the rows */
+        /* ── "Add product" dashed button ───────────────────────── */
         .btn-add-row {
             display: inline-flex;
             align-items: center;
             gap: 8px;
             padding: 9px 18px;
             background: transparent;
-            border: 1px dashed #444; /* Dashed border suggests "add something" */
+            border: 1px dashed #444;
             color: #888;
             border-radius: 3px;
             cursor: pointer;
@@ -400,87 +468,45 @@ if (isset($_GET['voir'])) {
             margin-top: 4px;
         }
         .btn-add-row:hover {
-            border-color: #D4AF37;  /* Gold on hover */
+            border-color: #D4AF37;
             color: #D4AF37;
             background: #111;
         }
 
-        /* ── Real-time total display box ─────────────────────── */
-        /* This box sits below all the product rows and shows the
-           running total as the agent fills in the form. */
+        /* ── Real-time total box ───────────────────────────────── */
         .total-box {
             margin-top: 16px;
             padding: 16px 20px;
             background: #111;
             border: 1px solid #2A2A2A;
-            border-left: 3px solid #D4AF37; /* Gold left accent bar */
+            border-left: 3px solid #D4AF37;
             border-radius: 4px;
             display: flex;
             align-items: center;
-            justify-content: space-between; /* Label on left, amount on right */
+            justify-content: space-between;
         }
+        .total-label    { font-size: 0.75rem; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 1.5px; }
+        .total-amount   { font-size: 1.5rem;  font-weight: 800; color: #D4AF37; letter-spacing: 1px; }
+        .total-breakdown{ font-size: 0.75rem; color: #555; text-align: right; }
 
-        /* "TOTAL ESTIMÉ" label on the left side of the total box */
-        .total-label {
-            font-size: 0.75rem;
-            font-weight: 700;
-            color: #888;
-            text-transform: uppercase;
-            letter-spacing: 1.5px;
-        }
+        /* ── Column header labels above the rows ──────────────── */
+        .product-row-headers { display: flex; gap: 12px; padding: 0 16px; margin-bottom: 6px; }
+        .product-row-headers span { font-size: 0.65rem; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 1px; }
 
-        /* The dollar amount on the right side of the total box */
-        .total-amount {
-            font-size: 1.5rem;
-            font-weight: 800;
-            color: #D4AF37;          /* Large gold number — the visual focal point */
-            letter-spacing: 1px;
-        }
-
-        /* Small breakdown line below the total (shows "X items") */
-        .total-breakdown {
-            font-size: 0.75rem;
-            color: #555;
-            text-align: right;
-        }
-
-        /* Column header labels above the product rows */
-        .product-row-headers {
-            display: flex;
-            gap: 12px;
-            padding: 0 16px;
-            margin-bottom: 6px;
-        }
-        .product-row-headers span {
-            font-size: 0.65rem;
-            font-weight: 700;
-            color: #555;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        /* Match the flex widths of the actual row elements */
-        .ph-num   { min-width: 20px; }
-        .ph-prod  { flex: 2; }
-        .ph-price { flex: 1; min-width: 90px; text-align: right; }
-        .ph-qty   { flex: 0 0 80px; text-align: center; }
-        .ph-del   { flex: 0 0 auto; min-width: 38px; }
-
-        /* Form action bar: holds the save button aligned to the right */
+        /* ── Form action bar (Save button) ─────────────────────── */
         .form-actions {
             display: flex;
-            justify-content: flex-end; /* Push button to the far right */
+            justify-content: flex-end; /* Button aligned to the right */
             margin-top: 20px;
             padding-top: 16px;
-            border-top: 1px solid #1E1E1E; /* Separator line above button */
+            border-top: 1px solid #1E1E1E;
         }
     </style>
 </head>
 <body>
-
-<!-- .dashboard-layout is a flex container: sidebar on left, content on right -->
 <div class="dashboard-layout">
 
-    <!-- ===== SIDEBAR NAVIGATION ===== -->
+    <!-- ===== SIDEBAR ===== -->
     <aside class="sidebar">
         <div class="sidebar-logo">
             <h1>MVSTOCK</h1>
@@ -490,9 +516,7 @@ if (isset($_GET['voir'])) {
             <a href="accueil.php"><span class="icon">🏠</span> Tableau de bord</a>
             <a href="produits.php"><span class="icon">📦</span> Produits</a>
             <a href="clients.php"><span class="icon">👥</span> Clients</a>
-            <!-- class="active" highlights this as the current page -->
             <a href="ventes.php" class="active"><span class="icon">🛒</span> Ventes</a>
-            <!-- Statistics and Users are admin-only -->
             <?php if ($_SESSION['user_role'] == 'admin'): ?>
             <a href="stats.php"><span class="icon">📊</span> Statistiques</a>
             <?php endif; ?>
@@ -508,38 +532,33 @@ if (isset($_GET['voir'])) {
     <!-- ===== MAIN CONTENT ===== -->
     <main class="main-content">
 
-        <!-- Top bar: page title + logged-in user info -->
         <div class="topbar">
             <h2>🛒 Ventes</h2>
             <div class="user-info">
-                <!-- htmlspecialchars() prevents XSS by escaping special HTML chars -->
                 <span>👋 <?php echo htmlspecialchars($_SESSION['user_nom']); ?></span>
                 <span class="badge-role"><?php echo $_SESSION['user_role']; ?></span>
             </div>
         </div>
 
-        <!-- Green success message — only shown when $message is not empty -->
+        <!-- Success message (green) — shown after a sale is saved -->
         <?php if ($message != ""): ?>
             <div class="alert-msg success"><?php echo $message; ?></div>
         <?php endif; ?>
 
-        <!-- Red error message — only shown when $erreur is not empty -->
+        <!-- Error message (red) — shown when stock validation fails etc. -->
         <?php if ($erreur != ""): ?>
             <div class="alert-msg danger"><?php echo $erreur; ?></div>
         <?php endif; ?>
 
         <?php if ($detail_vente): ?>
         <!-- ══════════════════════════════════════════════════
-             SALE DETAIL VIEW (triggered by ?voir=ID in URL)
+             SALE DETAIL VIEW  (?voir=ID)
              ══════════════════════════════════════════════════ -->
         <div class="card">
             <div class="card-header">
                 <h3>🧾 Détail — Vente #<?php echo $detail_vente['id_vente']; ?></h3>
                 <div style="display:flex; gap:10px;">
-                    <!-- Back button: returns to the main sales list -->
                     <a href="ventes.php" class="btn btn-secondary">← Retour</a>
-
-                    <!-- PDF download button: opens facture.php for this sale -->
                     <a href="facture.php?id=<?php echo $detail_vente['id_vente']; ?>"
                        class="btn btn-primary"
                        style="background:#C9A227; color:#1A1A1A; font-weight:700; border:none;">
@@ -547,9 +566,8 @@ if (isset($_GET['voir'])) {
                     </a>
                 </div>
             </div>
-
             <div style="padding:24px;">
-                <!-- 4-column grid: client, agent, payment, date -->
+                <!-- 4-column info grid -->
                 <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:16px; margin-bottom:24px;">
                     <div>
                         <p style="color:#888; font-size:0.8rem;">CLIENT</p>
@@ -565,30 +583,23 @@ if (isset($_GET['voir'])) {
                     </div>
                     <div>
                         <p style="color:#888; font-size:0.8rem;">PAIEMENT</p>
-                        <!-- ucfirst() capitalizes the first letter: "especes" → "Especes" -->
                         <p style="font-weight:600;"><?php echo ucfirst($detail_vente['mode_paiement']); ?></p>
                     </div>
                     <div>
                         <p style="color:#888; font-size:0.8rem;">DATE</p>
-                        <!-- date() reformats the SQL timestamp into a readable format -->
                         <p style="font-weight:600;">
                             <?php echo date('d/m/Y à H:i', strtotime($detail_vente['date_vente'])); ?>
                         </p>
                     </div>
                 </div>
-
-                <!-- Table of product lines for this sale -->
                 <table>
                     <thead>
                         <tr>
-                            <th>Produit</th>
-                            <th>Prix unitaire</th>
-                            <th>Quantité</th>
-                            <th>Sous-total</th>
+                            <th>Produit</th><th>Prix unitaire</th>
+                            <th>Quantité</th><th>Sous-total</th>
                         </tr>
                     </thead>
                     <tbody>
-                    <!-- Loop through each product line fetched from ligne_vente -->
                     <?php while ($l = mysqli_fetch_assoc($detail_lignes)): ?>
                         <tr>
                             <td><?php echo htmlspecialchars($l['designation']); ?></td>
@@ -597,10 +608,9 @@ if (isset($_GET['voir'])) {
                             <td><strong>$<?php echo number_format($l['sous_total'], 2); ?></strong></td>
                         </tr>
                     <?php endwhile; ?>
-                    <!-- Grand total row with dark background and gold text -->
                     <tr style="background:#111;">
-                        <td colspan="3" style="text-align:right; font-weight:700; padding:14px 24px; color:#F0F0F0;">TOTAL</td>
-                        <td style="font-weight:700; font-size:1.1rem; color:#D4AF37;">
+                        <td colspan="3" style="text-align:right;font-weight:700;padding:14px 24px;color:#F0F0F0;">TOTAL</td>
+                        <td style="font-weight:700;font-size:1.1rem;color:#D4AF37;">
                             $<?php echo number_format($detail_vente['montant_total'], 2); ?>
                         </td>
                     </tr>
@@ -611,10 +621,9 @@ if (isset($_GET['voir'])) {
 
         <?php else: ?>
         <!-- ══════════════════════════════════════════════════
-             NEW SALE FORM + RECENT SALES LIST
+             NEW SALE FORM  +  RECENT SALES LIST
              ══════════════════════════════════════════════════ -->
 
-        <!-- ── NEW SALE FORM ── -->
         <div class="card" style="margin-bottom:24px;">
             <div class="card-header">
                 <h3>➕ Nouvelle vente</h3>
@@ -622,36 +631,29 @@ if (isset($_GET['voir'])) {
             <div style="padding:24px;">
 
                 <!--
-                    The form submits via POST to this same page.
-                    id="sale-form" is used by JavaScript to detect unsaved changes
-                    and to read all product rows when calculating the total.
+                    id="sale-form" used by:
+                      - beforeunload (unsaved-changes warning)
+                      - validateStock() (stock check on submit)
                 -->
                 <form method="POST" action="ventes.php" id="sale-form">
-
-                    <!-- Hidden field: tells the PHP code at the top that
-                         this is a sale submission (not some other POST action). -->
                     <input type="hidden" name="action" value="vendre">
 
-                    <!-- Two-column grid: client selector + payment method selector -->
+                    <!-- Client + payment method selectors -->
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px;">
-
-                        <!-- CLIENT DROPDOWN -->
                         <div class="form-group">
                             <label>Client (optionnel — anonyme si vide)</label>
-                            <select name="id_client" id="client-select">
+                            <select name="id_client">
                                 <option value="">-- Vente anonyme --</option>
                                 <?php while ($c = mysqli_fetch_assoc($clients)): ?>
                                     <option value="<?php echo $c['id_client']; ?>">
-                                        <?php echo htmlspecialchars($c['prenom'] . ' ' . $c['nom']); ?>
+                                        <?php echo htmlspecialchars($c['prenom'].' '.$c['nom']); ?>
                                     </option>
                                 <?php endwhile; ?>
                             </select>
                         </div>
-
-                        <!-- PAYMENT METHOD DROPDOWN -->
                         <div class="form-group">
                             <label>Mode de paiement *</label>
-                            <select name="mode_paiement" id="payment-select">
+                            <select name="mode_paiement">
                                 <option value="especes">💵 Espèces</option>
                                 <option value="carte">💳 Carte</option>
                                 <option value="virement">🏦 Virement</option>
@@ -659,37 +661,40 @@ if (isset($_GET['voir'])) {
                         </div>
                     </div>
 
-                    <!-- Section title for the product lines -->
-                    <p style="font-size:0.75rem; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:1px; margin-bottom:12px;">
+                    <p style="font-size:0.75rem;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;">
                         Produits vendus
                     </p>
 
-                    <!-- Column headers above the product rows -->
+                    <!-- Column header labels -->
                     <div class="product-row-headers">
-                        <span class="ph-num">#</span>
-                        <span class="ph-prod" style="flex:2;">Produit</span>
-                        <span class="ph-price" style="flex:1; min-width:90px; text-align:right;">Prix unitaire</span>
-                        <span class="ph-qty" style="flex:0 0 80px; text-align:center;">Qté</span>
-                        <span class="ph-del" style="flex:0 0 auto; min-width:38px;"></span>
+                        <span style="min-width:20px;">#</span>
+                        <span style="flex:2;">Produit</span>
+                        <span style="flex:1;min-width:90px;text-align:right;">Prix unitaire</span>
+                        <span style="flex:0 0 80px;text-align:center;">Qté</span>
+                        <span style="flex:0 0 auto;min-width:38px;"></span>
                     </div>
 
-                    <!-- #product-lines: the container where rows are added/removed.
-                         JavaScript reads this div to find all current product rows. -->
+                    <!-- Dynamic product rows container -->
                     <div id="product-lines">
-                        <!-- The first row is rendered by PHP (others are cloned by JS).
-                             data-index="0" identifies this row's position. -->
-                        <div class="product-row" data-index="0">
 
-                            <!-- Row number label — updated automatically by JS when rows are added/removed -->
+                        <!--
+                            FIRST PRODUCT ROW (rendered by PHP).
+                            Additional rows are cloned from this one by JavaScript.
+
+                            Each option carries:
+                              data-price  — used to show the unit price box
+                              data-stock  — used by validateStock() to check quantity
+                        -->
+                        <div class="product-row" data-index="0">
                             <span class="row-number">1</span>
 
-                            <!-- Product dropdown — name uses [] to form an array on submission.
-                                 onchange calls updateRow(0) to refresh the price and total. -->
-                            <select name="id_produit[]" onchange="updateRow(this)" style="flex:2;">
+                            <select name="id_produit[]" style="flex:2;"
+                                    onchange="updateRow(this)">
                                 <option value="0">-- Sélectionner un produit --</option>
                                 <?php foreach ($produits_array as $p): ?>
                                     <option value="<?php echo $p['id_produit']; ?>"
                                             data-price="<?php echo $p['prix_unitaire']; ?>"
+                                            data-stock="<?php echo $p['stock_actuel']; ?>"
                                             <?php echo $p['stock_actuel'] == 0 ? 'disabled' : ''; ?>>
                                         <?php echo htmlspecialchars($p['designation']); ?>
                                         <?php echo $p['stock_actuel'] == 0 ? ' (rupture)' : ''; ?>
@@ -697,46 +702,41 @@ if (isset($_GET['voir'])) {
                                 <?php endforeach; ?>
                             </select>
 
-                            <!-- Unit price display: read-only, filled by JavaScript
-                                 when the agent selects a product from the dropdown. -->
+                            <!-- Unit price: filled automatically by updateRow() when a product is chosen -->
                             <div class="unit-price-box" id="price-display-0">—</div>
 
-                            <!-- Quantity input. min="1" prevents entering 0 or negative.
-                                 oninput fires every time the value changes (recalculates total). -->
-                            <input type="number" name="quantite[]" value="1" min="1"
-                                   oninput="recalculateTotal()" style="flex:0 0 80px;">
+                            <!-- Quantity: oninput triggers both total recalc AND stock re-check -->
+                            <input type="number" name="quantite[]"
+                                   value="1" min="1" style="flex:0 0 80px;"
+                                   oninput="onQuantityChange(this)">
 
-                            <!-- Trash button to remove this row.
-                                 The first row's button is disabled (you need at least 1 row).
-                                 onclick calls removeRow(this) which is defined in the JS below. -->
-                            <button type="button" class="btn-remove-row" onclick="removeRow(this)" disabled title="Vous devez garder au moins une ligne">
+                            <!-- Trash button disabled on the first row (need at least 1 row) -->
+                            <button type="button" class="btn-remove-row"
+                                    onclick="removeRow(this)" disabled
+                                    title="Vous devez garder au moins une ligne">
                                 🗑️
                             </button>
                         </div>
                     </div>
 
-                    <!-- "Add product" button: clicking it calls addRow() in JavaScript -->
+                    <!-- Add-row button -->
                     <button type="button" class="btn-add-row" onclick="addRow()">
                         ＋ Ajouter un produit
                     </button>
 
-                    <!-- ── REAL-TIME TOTAL BOX ── -->
-                    <!-- This box is updated live by JavaScript as the agent fills the form.
-                         id="total-box" is referenced in the JS recalculateTotal() function. -->
+                    <!-- Real-time total display -->
                     <div class="total-box">
                         <div>
                             <div class="total-label">Total estimé</div>
-                            <!-- id="total-items" shows something like "3 articles" -->
                             <div class="total-breakdown" id="total-items">0 article</div>
                         </div>
-                        <!-- id="total-amount" is updated by JavaScript with the live total -->
                         <div class="total-amount" id="total-amount">$0.00</div>
                     </div>
 
-                    <!-- ── FORM ACTION BAR ── -->
-                    <!-- .form-actions uses justify-content: flex-end to push the button right -->
+                    <!-- Save button — right-aligned -->
                     <div class="form-actions">
-                        <button type="submit" class="btn btn-primary" style="padding:10px 28px; font-size:0.85rem;">
+                        <button type="submit" class="btn btn-primary"
+                                style="padding:10px 28px; font-size:0.85rem;">
                             💾 Enregistrer la vente
                         </button>
                     </div>
@@ -747,10 +747,7 @@ if (isset($_GET['voir'])) {
 
         <!-- ── RECENT SALES TABLE ── -->
         <div class="card">
-            <div class="card-header">
-                <h3>📋 Ventes récentes</h3>
-            </div>
-
+            <div class="card-header"><h3>📋 Ventes récentes</h3></div>
             <?php if (mysqli_num_rows($ventes) == 0): ?>
                 <div class="empty-state">
                     <div class="empty-icon">🛒</div>
@@ -760,13 +757,8 @@ if (isset($_GET['voir'])) {
             <table>
                 <thead>
                     <tr>
-                        <th>#</th>
-                        <th>Client</th>
-                        <th>Agent</th>
-                        <th>Paiement</th>
-                        <th>Total</th>
-                        <th>Date</th>
-                        <th>Actions</th>
+                        <th>#</th><th>Client</th><th>Agent</th>
+                        <th>Paiement</th><th>Total</th><th>Date</th><th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -774,7 +766,6 @@ if (isset($_GET['voir'])) {
                     <tr>
                         <td>#<?php echo $v['id_vente']; ?></td>
                         <td>
-                            <!-- Show client name, or an "Anonyme" badge if no client -->
                             <?php echo $v['client_nom']
                                 ? htmlspecialchars($v['client_nom'])
                                 : '<span class="badge badge-info">Anonyme</span>'; ?>
@@ -784,14 +775,11 @@ if (isset($_GET['voir'])) {
                         <td><strong>$<?php echo number_format($v['montant_total'], 2); ?></strong></td>
                         <td><?php echo date('d/m/Y H:i', strtotime($v['date_vente'])); ?></td>
                         <td style="display:flex; gap:6px;">
-                            <!-- View detail button: appends ?voir=ID to the URL -->
                             <a href="ventes.php?voir=<?php echo $v['id_vente']; ?>"
                                class="btn btn-secondary">🔍 Voir</a>
-
-                            <!-- PDF download button: opens facture.php for this sale -->
                             <a href="facture.php?id=<?php echo $v['id_vente']; ?>"
                                class="btn btn-primary"
-                               style="background:#C9A227; color:#1A1A1A; font-weight:700; border:none; font-size:0.8rem;">
+                               style="background:#C9A227;color:#1A1A1A;font-weight:700;border:none;font-size:0.8rem;">
                                 ⬇️ PDF
                             </a>
                         </td>
@@ -804,72 +792,85 @@ if (isset($_GET['voir'])) {
         <?php endif; ?>
 
     </main>
-</div><!-- end .dashboard-layout -->
-
+</div>
 
 <!-- ============================================================
-     JAVASCRIPT — DYNAMIC FORM BEHAVIOUR
-     All the interactive features of the new sale form are
-     handled here:
-       1. addRow()          — adds a new product line
-       2. removeRow()       — removes a product line
-       3. updateRow()       — fills in the unit price when a product is chosen
-       4. recalculateTotal() — recalculates the live total
-       5. renumberRows()    — keeps row numbers accurate after add/remove
-       6. Unsaved-changes warning (beforeunload event)
+     JAVASCRIPT
+     ============================================================
+     Functions defined here:
+       validateStock()      — runs before form submits; highlights bad rows
+       checkRowStock(row)   — validates one row and sets/clears its error state
+       setRowError(row,msg) — adds the red glow + error message to a row
+       clearRowError(row)   — removes the red glow and error message from a row
+       updateRow(select)    — fills unit price when a product is chosen;
+                              also triggers a stock check on that row
+       onQuantityChange(input)— recalculates total AND re-checks stock on change
+       recalculateTotal()   — updates the live total display
+       addRow()             — clones the first row and appends it
+       removeRow(button)    — removes the row containing the clicked button
+       renumberRows()       — keeps row numbers and trash-button states in sync
      ============================================================ -->
 <script>
 
     /*
-     * PRODUCT PRICE LOOKUP TABLE
-     * This JavaScript object is generated by PHP (see $prix_js above).
-     * It maps product IDs to their unit prices.
-     * Example: { "1": 13.49, "2": 9.49, "3": 0.99 }
-     * JavaScript uses this to display prices instantly without contacting the server.
+     * PRICES — product ID → unit price
+     * Generated by PHP from the database. Used for real-time total.
+     * Example: { "1": 13.49, "3": 0.99 }
      */
     const PRICES = <?php echo $prix_js; ?>;
 
     /*
-     * UNSAVED-CHANGES TRACKING
-     * formDirty starts as false. It becomes true the moment the agent
-     * interacts with any field in the form. If they try to leave the
-     * page while formDirty is true, a warning dialog appears.
+     * STOCKS — product ID → current stock level
+     * Generated by PHP from the database.
+     * Used by validateStock() and checkRowStock() to detect overages.
+     * Example: { "1": 12, "2": 3, "3": 45 }
+     */
+    const STOCKS = <?php echo $stocks_js; ?>;
+
+    /*
+     * SERVER_ERRORS — row indices that PHP flagged as over-stock.
+     * On a fresh page load or successful save this is an empty array [].
+     * After a PHP-level rejection it may be e.g. [1, 3], meaning rows
+     * 2 and 4 (0-based indices) had stock problems.
+     * JavaScript reads this on DOMContentLoaded to highlight those rows.
+     */
+    const SERVER_ERRORS = <?php echo $stock_errors_js; ?>;
+
+    /*
+     * formDirty — tracks whether the agent has typed anything.
+     * Set to true on first interaction; reset to false on successful submit.
+     * The beforeunload handler uses this to show an unsaved-changes warning.
      */
     let formDirty = false;
 
-    // Get a reference to the form element so we can attach event listeners to it.
+    // ── Attach form-level event listeners ──────────────────────
     const saleForm = document.getElementById('sale-form');
-
-    // If the sale form exists on this page (i.e. we are NOT in the detail view),
-    // attach a listener that sets formDirty = true on any input or change event.
     if (saleForm) {
-
-        // 'input' fires when the user types in a text or number field.
-        // 'change' fires when the user selects a new option from a dropdown.
-        // We listen to both at the form level — this catches all child elements.
+        // Any input/change anywhere in the form marks it as dirty.
         saleForm.addEventListener('input',  () => { formDirty = true; });
         saleForm.addEventListener('change', () => { formDirty = true; });
 
-        // When the form is successfully submitted, reset formDirty to false.
-        // This prevents the warning from appearing after a successful save.
-        saleForm.addEventListener('submit', () => { formDirty = false; });
+        // On submit: run stock validation FIRST.
+        // If validateStock() returns false, the submit is cancelled.
+        saleForm.addEventListener('submit', function(e) {
+            if (!validateStock()) {
+                // Prevent the form from being sent to the server.
+                e.preventDefault();
+            } else {
+                // All rows are valid — allow submission and clear dirty flag.
+                formDirty = false;
+            }
+        });
     }
 
     /*
-     * BEFOREUNLOAD EVENT LISTENER
-     * This fires any time the user tries to leave the page:
-     * clicking a link, closing the tab, refreshing, or navigating back.
-     * If the form has been touched (formDirty = true), we show a browser
-     * confirmation dialog asking "Do you wish to save the current query?"
-     *
-     * Note: modern browsers show their own fixed message ("Changes you made
-     * may not be saved") for security reasons. Setting e.returnValue is the
-     * standard way to trigger this dialog.
+     * UNSAVED-CHANGES WARNING
+     * If the agent tries to navigate away while formDirty is true,
+     * the browser shows a "Leave site?" confirmation dialog.
+     * Modern browsers ignore the custom message and show their own text.
      */
     window.addEventListener('beforeunload', function(e) {
         if (formDirty) {
-            // This message may or may not be shown depending on the browser.
-            // All modern browsers override it with their own standard message.
             e.preventDefault();
             e.returnValue = 'Do you wish to save the current query? Your unsaved sale will be lost.';
         }
@@ -877,207 +878,298 @@ if (isset($_GET['voir'])) {
 
 
     /*
-     * ── addRow() ────────────────────────────────────────────────
-     * Called when the agent clicks "＋ Ajouter un produit".
-     * Clones the first product row, resets its values, and appends
-     * it to the #product-lines container.
+     * ── validateStock() ─────────────────────────────────────────
+     * Called just before the form is submitted.
+     * Loops through every product row and checks whether the entered
+     * quantity exceeds the available stock for the chosen product.
+     *
+     * Rows that are over stock get the red glow error state.
+     * Rows that are fine have any previous error state cleared.
+     *
+     * Returns:
+     *   true  — all rows are valid; form submission may proceed
+     *   false — at least one row is invalid; form submission is blocked
      */
-    function addRow() {
+    function validateStock() {
+        const rows = document.querySelectorAll('.product-row');
+        let   hasError = false;
 
-        // Get the container that holds all product rows.
-        const container = document.getElementById('product-lines');
+        rows.forEach(function(row) {
+            // checkRowStock() returns true if the row is OK, false if over-stock.
+            if (!checkRowStock(row)) {
+                hasError = true;
+            }
+        });
 
-        // Count how many rows currently exist. This becomes the new row's index.
-        const newIndex = container.querySelectorAll('.product-row').length;
+        if (hasError) {
+            // Scroll smoothly to the first red row so the agent sees it immediately.
+            const firstError = document.querySelector('.product-row.row-error');
+            if (firstError) {
+                firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
 
-        // Clone the FIRST row (index 0) as a template.
-        // true = deep clone (includes all child elements inside the row).
-        const firstRow  = container.querySelector('.product-row');
-        const newRow    = firstRow.cloneNode(true);
-
-        // Update the data-index attribute on the new row so each row has a unique ID.
-        newRow.setAttribute('data-index', newIndex);
-
-        // Reset the product dropdown to "Sélectionner un produit" (index 0).
-        const select    = newRow.querySelector('select');
-        select.selectedIndex = 0;
-
-        // Update the onchange attribute to pass the correct row context.
-        select.setAttribute('onchange', 'updateRow(this)');
-
-        // Reset the unit price display to a dash (no product selected yet).
-        const priceBox  = newRow.querySelector('.unit-price-box');
-        priceBox.textContent = '—';
-        priceBox.id = 'price-display-' + newIndex; // Unique ID for this row's price box
-
-        // Reset the quantity input back to 1.
-        const qtyInput  = newRow.querySelector('input[type="number"]');
-        qtyInput.value  = 1;
-
-        // Enable the trash button on the new row (it can always be deleted).
-        const removeBtn = newRow.querySelector('.btn-remove-row');
-        removeBtn.disabled = false;
-        removeBtn.title    = '';
-
-        // Add the new row to the container.
-        container.appendChild(newRow);
-
-        // Re-number all rows (1, 2, 3...) so the labels stay accurate.
-        renumberRows();
-
-        // Mark the form as dirty since a new row was added.
-        formDirty = true;
-
-        // Recalculate the total (new row adds 0 but updates the item count display).
-        recalculateTotal();
+        // Return the inverse of hasError:
+        //   true  = no errors  = allow submit
+        //   false = has errors = block submit
+        return !hasError;
     }
 
 
     /*
-     * ── removeRow(button) ───────────────────────────────────────
-     * Called when the agent clicks the trash icon on a product row.
-     * Removes that row from the DOM, then renumbers and recalculates.
+     * ── checkRowStock(row) ──────────────────────────────────────
+     * Validates the stock for a single product row.
      *
-     * @param button  The trash button element that was clicked.
+     * Logic:
+     *   - If no product is selected, always OK (blank row — ignored on save).
+     *   - If STOCKS[productId] >= quantity, the row is fine → clear error.
+     *   - If STOCKS[productId] < quantity, the row is over-stock → set error.
+     *
+     * @param  row  A .product-row DOM element
+     * @return true if the row is valid (or blank), false if over-stock
      */
-    function removeRow(button) {
+    function checkRowStock(row) {
+        const select    = row.querySelector('select');
+        const qtyInput  = row.querySelector('input[type="number"]');
 
-        // .closest('.product-row') walks up the DOM tree from the button
-        // until it finds the enclosing .product-row div — that's the row to delete.
-        const row       = button.closest('.product-row');
-        const container = document.getElementById('product-lines');
+        if (!select || !qtyInput) return true; // Malformed row — skip safely
 
-        // Safety check: never remove the last remaining row.
-        // The form requires at least one product line.
-        if (container.querySelectorAll('.product-row').length <= 1) {
-            return; // Do nothing
+        const productId = select.value;
+        const quantity  = parseInt(qtyInput.value) || 0;
+
+        // Blank row — no product selected or zero quantity — always fine.
+        if (!productId || productId === '0' || quantity <= 0) {
+            clearRowError(row);
+            return true;
         }
 
-        // Remove the row from the page.
-        row.remove();
+        const available = (STOCKS[productId] !== undefined)
+            ? parseInt(STOCKS[productId])
+            : 0;
 
-        // Re-number the remaining rows so numbers are still consecutive.
-        renumberRows();
+        if (quantity > available) {
+            // Over-stock: show the red glow with the exact available quantity.
+            setRowError(row, 'Only ' + available + ' in stock');
+            return false;
+        } else {
+            // Within stock: make sure any previous error is removed.
+            clearRowError(row);
+            return true;
+        }
+    }
 
-        // Recalculate the total without the deleted row.
-        recalculateTotal();
+
+    /*
+     * ── setRowError(row, message) ───────────────────────────────
+     * Adds the red-glow error state to a product row and shows
+     * an inline message explaining what is wrong.
+     *
+     * @param row      The .product-row DOM element to mark as invalid
+     * @param message  The error text to show (e.g. "Only 3 in stock")
+     */
+    function setRowError(row, message) {
+
+        // Add the CSS class that triggers the red border and pulsing glow animation.
+        row.classList.add('row-error');
+
+        // Check whether an error message element already exists inside this row.
+        // If not, create one so we don't duplicate messages.
+        let existing = row.querySelector('.stock-error-msg');
+        if (!existing) {
+            const msg = document.createElement('span');
+            // .stock-error-msg is styled in the <style> block above:
+            // small red text, absolutely positioned at the bottom of the row.
+            msg.className   = 'stock-error-msg';
+            msg.textContent = '⚠ ' + message;
+            row.appendChild(msg); // Add the message inside the row container
+        } else {
+            // Update the text of the existing message if it changed.
+            existing.textContent = '⚠ ' + message;
+        }
+    }
+
+
+    /*
+     * ── clearRowError(row) ──────────────────────────────────────
+     * Removes the red-glow error state and the inline error message
+     * from a product row. Called when the agent fixes the issue.
+     *
+     * @param row  The .product-row DOM element to clear
+     */
+    function clearRowError(row) {
+        // Remove the CSS class — this stops the red border and glow animation.
+        row.classList.remove('row-error');
+
+        // Remove the error message element if it exists.
+        const msg = row.querySelector('.stock-error-msg');
+        if (msg) msg.remove();
     }
 
 
     /*
      * ── updateRow(selectElement) ────────────────────────────────
-     * Called when the agent changes the product selection in a dropdown.
-     * Reads the selected product's price from the PRICES lookup table
-     * and displays it in the unit price box for that row.
-     * Then recalculates the running total.
+     * Called when the agent changes the product selection in a row.
+     * Two things happen:
+     *   1. The unit price box is updated with the selected product's price.
+     *   2. The row stock is re-checked (clearing any previous error if the
+     *      new product has enough stock for the current quantity).
      *
-     * @param selectElement  The <select> element that changed.
+     * @param selectElement  The <select> element that triggered the change
      */
     function updateRow(selectElement) {
-
-        // .closest('.product-row') finds the row container that wraps this select.
-        const row = selectElement.closest('.product-row');
-
-        // Read the selected product ID from the dropdown's current value.
+        const row       = selectElement.closest('.product-row');
         const productId = selectElement.value;
+        const priceBox  = row.querySelector('.unit-price-box');
 
-        // Find the price display box inside this specific row.
-        const priceBox = row.querySelector('.unit-price-box');
-
-        if (productId && productId != '0' && PRICES[productId] !== undefined) {
-            // A valid product was selected — show its unit price formatted as "$X.XX".
-            // toFixed(2) formats the number to exactly 2 decimal places.
+        // Update the unit price display.
+        if (productId && productId !== '0' && PRICES[productId] !== undefined) {
             priceBox.textContent = '$' + parseFloat(PRICES[productId]).toFixed(2);
         } else {
-            // No product selected (or "Sélectionner un produit") — show a dash.
             priceBox.textContent = '—';
         }
 
-        // Recalculate the order total now that a product (and its price) has changed.
+        // Re-validate this row's stock with the new product selection.
+        checkRowStock(row);
+
+        // Recalculate the running order total.
         recalculateTotal();
     }
 
 
     /*
+     * ── onQuantityChange(inputElement) ──────────────────────────
+     * Called whenever the agent changes the quantity in a row.
+     * Two things happen:
+     *   1. The running total is recalculated.
+     *   2. The row's stock is re-checked so the error clears as soon
+     *      as the agent reduces the quantity to a valid number.
+     *
+     * @param inputElement  The <input type="number"> that changed
+     */
+    function onQuantityChange(inputElement) {
+        const row = inputElement.closest('.product-row');
+        recalculateTotal();     // Update the total display
+        checkRowStock(row);     // Re-validate stock for this specific row
+    }
+
+
+    /*
      * ── recalculateTotal() ──────────────────────────────────────
-     * Loops through all current product rows, reads their selected
-     * product ID and quantity, looks up the price in the PRICES table,
-     * and sums up the grand total. Updates the #total-amount display.
-     * Called every time a product is selected or a quantity is changed.
+     * Iterates every product row and sums up (price × quantity)
+     * to produce a live running total displayed below the rows.
      */
     function recalculateTotal() {
+        const rows = document.querySelectorAll('.product-row');
+        let total  = 0;
+        let items  = 0;
 
-        // Get all product rows currently in the container.
-        const rows  = document.querySelectorAll('.product-row');
-
-        let total   = 0;   // Running total in monetary units
-        let items   = 0;   // Total number of individual items (sum of all quantities)
-
-        // Loop through every row.
         rows.forEach(function(row) {
-
-            // Read the selected product ID from this row's dropdown.
             const select    = row.querySelector('select');
-            const productId = select ? select.value : '0';
-
-            // Read the quantity from this row's number input.
-            // parseInt() converts the string to an integer. || 0 handles empty fields.
             const qtyInput  = row.querySelector('input[type="number"]');
+            const productId = select ? select.value : '0';
             const quantity  = qtyInput ? (parseInt(qtyInput.value) || 0) : 0;
+            // Look up the price; default to 0 if the product is not selected.
+            const price     = (productId && PRICES[productId])
+                ? parseFloat(PRICES[productId]) : 0;
 
-            // Look up the price from our PRICES table.
-            // If the product ID is not in the table, use 0 (no price = no contribution).
-            const price     = (productId && PRICES[productId]) ? parseFloat(PRICES[productId]) : 0;
-
-            // Add this line's subtotal (price × quantity) to the running total.
             total += price * quantity;
-
-            // Add this line's quantity to the total item count.
             items += quantity;
         });
 
-        // Update the large total amount display.
-        // toFixed(2) formats as "$37.19" — always shows 2 decimal places.
+        // Update the large gold amount display.
         document.getElementById('total-amount').textContent = '$' + total.toFixed(2);
 
-        // Update the smaller "X article(s)" breakdown text.
-        // French grammar: "1 article" (singular) vs "3 articles" (plural).
+        // Update the small item-count label (French singular/plural).
         const label = items <= 1 ? 'article' : 'articles';
         document.getElementById('total-items').textContent = items + ' ' + label;
     }
 
 
     /*
+     * ── addRow() ────────────────────────────────────────────────
+     * Adds a new blank product row by deep-cloning the first row,
+     * resetting all its values, and appending it to #product-lines.
+     */
+    function addRow() {
+        const container = document.getElementById('product-lines');
+        const newIndex  = container.querySelectorAll('.product-row').length;
+        const firstRow  = container.querySelector('.product-row');
+        const newRow    = firstRow.cloneNode(true); // Deep clone
+
+        newRow.setAttribute('data-index', newIndex);
+
+        // Clear any error state that may have been carried over from the clone source.
+        newRow.classList.remove('row-error');
+        const oldMsg = newRow.querySelector('.stock-error-msg');
+        if (oldMsg) oldMsg.remove();
+
+        // Reset dropdown to "Sélectionner un produit".
+        const select = newRow.querySelector('select');
+        select.selectedIndex = 0;
+        select.setAttribute('onchange', 'updateRow(this)');
+
+        // Reset price display.
+        const priceBox = newRow.querySelector('.unit-price-box');
+        priceBox.textContent = '—';
+        priceBox.id = 'price-display-' + newIndex;
+
+        // Reset quantity to 1.
+        const qtyInput = newRow.querySelector('input[type="number"]');
+        qtyInput.value = 1;
+        // Ensure the oninput still points to the right handler.
+        qtyInput.setAttribute('oninput', 'onQuantityChange(this)');
+
+        // Enable the trash button (new rows can always be deleted).
+        const removeBtn = newRow.querySelector('.btn-remove-row');
+        removeBtn.disabled = false;
+        removeBtn.title    = '';
+
+        container.appendChild(newRow);
+        renumberRows();
+        formDirty = true;
+        recalculateTotal();
+    }
+
+
+    /*
+     * ── removeRow(button) ───────────────────────────────────────
+     * Removes the product row that contains the clicked trash button.
+     * Refuses to remove the last remaining row.
+     */
+    function removeRow(button) {
+        const row       = button.closest('.product-row');
+        const container = document.getElementById('product-lines');
+
+        // Safety: never remove the only remaining row.
+        if (container.querySelectorAll('.product-row').length <= 1) return;
+
+        row.remove();
+        renumberRows();
+        recalculateTotal();
+    }
+
+
+    /*
      * ── renumberRows() ──────────────────────────────────────────
-     * After adding or removing a row, the row numbers (1, 2, 3...)
-     * shown on the left may be out of sequence. This function
-     * re-assigns consecutive numbers to all rows.
-     * It also ensures only the first row's trash button is disabled.
+     * After adding or removing rows, re-assigns sequential numbers
+     * (1, 2, 3 …) to the row labels and updates data-index attributes.
+     * Also controls which trash buttons are enabled/disabled.
      */
     function renumberRows() {
-
-        // Get all current product rows.
         const rows = document.querySelectorAll('.product-row');
 
         rows.forEach(function(row, index) {
-
-            // Update the visible number label (index is 0-based, display is 1-based).
             const numLabel = row.querySelector('.row-number');
             if (numLabel) numLabel.textContent = (index + 1);
-
-            // Update the data-index attribute to match the new position.
             row.setAttribute('data-index', index);
 
-            // The first row's trash button should be disabled (can't delete the last row).
-            // All other rows' buttons should be enabled.
             const removeBtn = row.querySelector('.btn-remove-row');
             if (removeBtn) {
                 if (rows.length === 1) {
-                    // Only one row left — disable the trash button.
+                    // Only one row — disable trash button.
                     removeBtn.disabled = true;
                     removeBtn.title    = 'Vous devez garder au moins une ligne';
                 } else {
-                    // Multiple rows — all trash buttons are active.
                     removeBtn.disabled = false;
                     removeBtn.title    = '';
                 }
@@ -1085,8 +1177,35 @@ if (isset($_GET['voir'])) {
         });
     }
 
-    // Run once on page load to make sure the initial state is correct.
+
+    /*
+     * PAGE LOAD — INITIALISATION
+     * Run immediately when the script executes:
+     *   1. Recalculate the total (starts at $0.00).
+     *   2. If PHP returned stock errors (SERVER_ERRORS array is not empty),
+     *      highlight the corresponding rows so the agent sees them right away
+     *      even on a server-side reloaded page.
+     */
     recalculateTotal();
+
+    // Apply server-side error highlights (if any).
+    // SERVER_ERRORS is [] on a fresh page or after a successful save.
+    if (SERVER_ERRORS.length > 0) {
+        const rows = document.querySelectorAll('.product-row');
+        SERVER_ERRORS.forEach(function(errorIndex) {
+            // errorIndex is the 0-based row index from PHP.
+            if (rows[errorIndex]) {
+                // We don't know the exact stock message here, so we use a generic one.
+                // The agent can see the exact available stock in the product dropdown label.
+                setRowError(rows[errorIndex], 'Insufficient stock — reduce quantity');
+            }
+        });
+        // Scroll to the first highlighted row.
+        const firstError = document.querySelector('.product-row.row-error');
+        if (firstError) {
+            firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }
 
 </script>
 </body>
