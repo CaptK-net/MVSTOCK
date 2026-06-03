@@ -58,6 +58,18 @@ $erreur  = "";
 // Check if "delete" was passed in the URL (e.g., produits.php?delete=3).
 if (isset($_GET['delete'])) {
 
+    // ── PERMISSION CHECK: only admins may delete a product ──────────
+    // Deleting a product is a destructive action reserved for admins.
+    // We must check the role HERE on the server, not just hide the
+    // button in the page. Otherwise an agent could still delete a
+    // product simply by typing "produits.php?delete=5" in the address
+    // bar. This server-side check is the real protection.
+    if ($_SESSION['user_role'] != 'admin') {
+        // The user is not an admin — refuse the deletion and show an error.
+        // We do NOT run the DELETE query at all.
+        $erreur = "Vous n'avez pas la permission de supprimer un produit.";
+    } else {
+
     // Convert the value from the URL to a whole number (integer).
     // This is a safety measure: if someone types "abc" instead of "3",
     // casting it to (int) gives 0, which will not match any real product.
@@ -80,6 +92,8 @@ if (isset($_GET['delete'])) {
         // Something went wrong — store an error message to show the user.
         $erreur = "Erreur lors de la suppression.";
     }
+
+    } // End of the admin-only permission block opened above.
 }
 
 /*
@@ -633,13 +647,23 @@ $produits = mysqli_query($conn,
                                  which causes PHP to load that product's data into the form above. -->
                             <a href="produits.php?edit=<?php echo $p['id_produit']; ?>" class="btn btn-warning">✏️ Modifier</a>
 
-                            <!-- Delete button: clicking it asks the user to confirm via a JavaScript
-                                 popup ("return confirm(...)"). If they click OK, the page reloads
-                                 with ?delete=ID and PHP removes the product from the database.
-                                 If they click Cancel, nothing happens (the function returns false). -->
+                            <!-- Delete button: ONLY shown to admins.
+                                 Deleting a product is an admin-only action, so the
+                                 button is hidden for agents. (The server also refuses
+                                 the deletion if a non-admin somehow reaches the URL,
+                                 see the permission check near the top of this file —
+                                 hiding the button alone is not enough security.)
+
+                                 When an admin clicks it, a JavaScript popup asks for
+                                 confirmation ("return confirm(...)"). If they click OK,
+                                 the page reloads with ?delete=ID and PHP removes the
+                                 product. If they click Cancel, nothing happens. -->
+                            <?php if ($_SESSION['user_role'] == 'admin'): ?>
                             <a href="produits.php?delete=<?php echo $p['id_produit']; ?>"
                                class="btn btn-danger"
                                onclick="return confirm('Supprimer ce produit ?')">🗑️ Supprimer</a>
+                            <?php endif; ?>
+                            <!-- End of the admin-only Delete button. -->
                         </td>
                         <!-- End of action buttons cell. -->
 
