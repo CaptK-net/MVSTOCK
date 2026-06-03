@@ -334,8 +334,16 @@ $total   = mysqli_num_rows($clients);
             <!-- Sales page link. -->
             <a href="ventes.php"><span class="icon">🛒</span> Ventes</a>
 
-            <!-- Statistics page link — visible to ALL logged-in users here. -->
+            <!-- Statistics page link — only show this to admins.
+                 BUGFIX: previously this link was visible to everyone, so agents
+                 saw a "Statistiques" button. Clicking it hit stats.php, which
+                 itself redirects non-admins back to the dashboard (accueil.php).
+                 We now wrap the link in the same admin check used on the other
+                 pages so agents never see it in the first place. -->
+            <?php if ($_SESSION['user_role'] == 'admin'): ?>
             <a href="stats.php"><span class="icon">📊</span> Statistiques</a>
+            <?php endif; ?>
+            <!-- End of the admin-only Statistics link. -->
 
             <!-- Users management link — only show this to admins. -->
             <?php if ($_SESSION['user_role'] == 'admin'): ?>
